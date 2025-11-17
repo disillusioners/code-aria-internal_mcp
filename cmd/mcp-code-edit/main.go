@@ -85,79 +85,27 @@ func handleRequest(msg *MCPMessage, encoder *json.Encoder) {
 func handleToolsList(msg *MCPMessage, encoder *json.Encoder) {
 	tools := []Tool{
 		{
-			Name:        "apply_diff",
-			Description: "Apply a diff to a file (replace old_content with new_content)",
+			Name:        "apply_operations",
+			Description: "Execute multiple operations in a single batch call",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"file_path": map[string]interface{}{
-						"type":        "string",
-						"description": "Path to the file",
-					},
-					"old_content": map[string]interface{}{
-						"type":        "string",
-						"description": "Old content to replace",
-					},
-					"new_content": map[string]interface{}{
-						"type":        "string",
-						"description": "New content",
-					},
-				},
-				"required": []string{"file_path", "old_content", "new_content"},
-			},
-		},
-		{
-			Name:        "replace_code",
-			Description: "Replace a code block in a file",
-			InputSchema: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"file_path": map[string]interface{}{
-						"type":        "string",
-						"description": "Path to the file",
-					},
-					"old_code": map[string]interface{}{
-						"type":        "string",
-						"description": "Old code block to replace",
-					},
-					"new_code": map[string]interface{}{
-						"type":        "string",
-						"description": "New code block",
+					"operations": map[string]interface{}{
+						"type":        "array",
+						"description": "List of operations to execute",
+						"items": map[string]interface{}{
+							"type":        "object",
+							"description": "Operation object with 'type' field and operation-specific parameters",
+							"properties": map[string]interface{}{
+								"type": map[string]interface{}{
+									"type":        "string",
+									"description": "Operation type: apply_diff, replace_code, create_file, delete_file",
+								},
+							},
+						},
 					},
 				},
-				"required": []string{"file_path", "old_code", "new_code"},
-			},
-		},
-		{
-			Name:        "create_file",
-			Description: "Create a new file with content",
-			InputSchema: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"file_path": map[string]interface{}{
-						"type":        "string",
-						"description": "Path to the new file",
-					},
-					"content": map[string]interface{}{
-						"type":        "string",
-						"description": "File content",
-					},
-				},
-				"required": []string{"file_path", "content"},
-			},
-		},
-		{
-			Name:        "delete_file",
-			Description: "Delete a file",
-			InputSchema: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"file_path": map[string]interface{}{
-						"type":        "string",
-						"description": "Path to the file to delete",
-					},
-				},
-				"required": []string{"file_path"},
+				"required": []string{"operations"},
 			},
 		},
 	}
@@ -178,35 +126,116 @@ func handleToolCall(msg *MCPMessage, encoder *json.Encoder) {
 	reqJSON, _ := json.Marshal(msg.Params)
 	json.Unmarshal(reqJSON, &req)
 
-	var result string
-	var err error
-
-	switch req.Name {
-	case "apply_diff":
-		result, err = toolApplyDiff(req.Arguments)
-	case "replace_code":
-		result, err = toolReplaceCode(req.Arguments)
-	case "create_file":
-		result, err = toolCreateFile(req.Arguments)
-	case "delete_file":
-		result, err = toolDeleteFile(req.Arguments)
-	default:
-		sendError(encoder, msg.ID, -32601, fmt.Sprintf("Unknown tool: %s", req.Name), nil)
+	if req.Name == "apply_operations" {
+		handleBatchOperations(msg, encoder, req.Arguments)
 		return
 	}
 
-	if err != nil {
-		sendError(encoder, msg.ID, -32603, err.Error(), nil)
+	// Individual tool calls are no longer exposed, but kept for internal use
+	sendError(encoder, msg.ID, -32601, fmt.Sprintf("Unknown tool: %s. Use apply_operations for batch operations", req.Name), nil)
+}
+
+func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[string]interface{}) {
+	operations, ok := args["operations"].([]interface{})
+	if !ok {
+		sendError(encoder, msg.ID, -32602, "operations array is required", nil)
 		return
 	}
 
+	var results []map[string]interface{}
+	var successCount int
+	var errorCount int
+
+	for i, op := range operations {
+		opMap, ok := op.(map[string]interface{})
+		if !ok {
+			results = append(results, map[string]interface{}{
+				"index":   i,
+				"type":    "unknown",
+				"success": false,
+				"error":   "Invalid operation format",
+			})
+			errorCount++
+			continue
+		}
+
+		opType, ok := opMap["type"].(string)
+		if !ok {
+			results = append(results, map[string]interface{}{
+				"index":   i,
+				"type":    "unknown",
+				"success": false,
+				"error":   "Operation type is required",
+			})
+			errorCount++
+			continue
+		}
+
+		// Extract operation-specific arguments
+		opArgs := make(map[string]interface{})
+		for k, v := range opMap {
+			if k != "type" {
+				opArgs[k] = v
+			}
+		}
+
+		// Execute operation based on type
+		var result string
+		var err error
+
+		switch opType {
+		case "apply_diff":
+			result, err = toolApplyDiff(opArgs)
+		case "replace_code":
+			result, err = toolReplaceCode(opArgs)
+		case "create_file":
+			result, err = toolCreateFile(opArgs)
+		case "delete_file":
+			result, err = toolDeleteFile(opArgs)
+		default:
+			err = fmt.Errorf("unknown operation type: %s", opType)
+		}
+
+		if err != nil {
+			results = append(results, map[string]interface{}{
+				"index":   i,
+				"type":    opType,
+				"success": false,
+				"error":   err.Error(),
+				"result":  nil,
+			})
+			errorCount++
+		} else {
+			// Parse JSON result if possible, otherwise use as string
+			var parsedResult interface{}
+			if jsonErr := json.Unmarshal([]byte(result), &parsedResult); jsonErr == nil {
+				// Successfully parsed JSON, use parsed result
+			} else {
+				// Not JSON, use string as-is
+				parsedResult = result
+			}
+
+			results = append(results, map[string]interface{}{
+				"index":   i,
+				"type":    opType,
+				"success": true,
+				"result":  parsedResult,
+				"error":   nil,
+			})
+			successCount++
+		}
+	}
+
+	// Create response
+	summary := fmt.Sprintf("Batch operations completed: %d succeeded, %d failed", successCount, errorCount)
 	response := MCPMessage{
 		JSONRPC: "2.0",
 		ID:      msg.ID,
-		Result: ToolsCallResponse{
-			Content: []Content{
-				{Type: "text", Text: result},
+		Result: map[string]interface{}{
+			"content": []Content{
+				{Type: "text", Text: summary},
 			},
+			"results": results,
 		},
 	}
 
@@ -420,4 +449,3 @@ type Content struct {
 	Type string `json:"type"`
 	Text string `json:"text,omitempty"`
 }
-
