@@ -376,16 +376,29 @@ func toolFileExists(args map[string]interface{}) (string, error) {
 	}
 
 	fullPath := resolvePath(path)
-	exists := true
-	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-		exists = false
+	info, err := os.Stat(fullPath)
+	
+	result := map[string]interface{}{
+		"path":    path,
+		"exists":  err == nil,
+	}
+	
+	if err == nil {
+		result["is_file"] = !info.IsDir()
+		result["is_directory"] = info.IsDir()
+		result["resolved_path"] = fullPath
+	} else if os.IsNotExist(err) {
+		result["error"] = "path does not exist"
+	} else {
+		// Some other error occurred (permission denied, etc.)
+		result["error"] = err.Error()
 	}
 
-	result, err := json.Marshal(exists)
+	resultJSON, err := json.Marshal(result)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal result: %w", err)
 	}
-	return string(result), nil
+	return string(resultJSON), nil
 }
 
 func toolCreateDirectory(args map[string]interface{}) (string, error) {
