@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -126,8 +127,15 @@ func handleToolsList(msg *MCPMessage, encoder *json.Encoder) {
 
 func handleToolCall(msg *MCPMessage, encoder *json.Encoder) {
 	var req ToolsCallRequest
-	reqJSON, _ := json.Marshal(msg.Params)
-	json.Unmarshal(reqJSON, &req)
+	reqJSON, err := json.Marshal(msg.Params)
+	if err != nil {
+		sendError(encoder, msg.ID, -32602, fmt.Sprintf("failed to marshal params: %v", err), nil)
+		return
+	}
+	if err := json.Unmarshal(reqJSON, &req); err != nil {
+		sendError(encoder, msg.ID, -32602, fmt.Sprintf("failed to unmarshal params: %v", err), nil)
+		return
+	}
 
 	if req.Name == "apply_operations" {
 		handleBatchOperations(msg, encoder, req.Arguments)
@@ -142,6 +150,11 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 	operations, ok := args["operations"].([]interface{})
 	if !ok {
 		sendError(encoder, msg.ID, -32602, "operations array is required", nil)
+		return
+	}
+
+	if len(operations) == 0 {
+		sendError(encoder, msg.ID, -32602, "operations array cannot be empty", nil)
 		return
 	}
 
@@ -271,8 +284,11 @@ func toolSearchCode(args map[string]interface{}) (string, error) {
 
 	var matches []map[string]interface{}
 
-	err = filepath.Walk(repoPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+	err = filepath.WalkDir(repoPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
 			return nil
 		}
 
@@ -311,7 +327,10 @@ func toolSearchCode(args map[string]interface{}) (string, error) {
 		return "", err
 	}
 
-	result, _ := json.Marshal(matches)
+	result, err := json.Marshal(matches)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal results: %w", err)
+	}
 	return string(result), nil
 }
 
@@ -349,7 +368,10 @@ func toolGetFileDependencies(args map[string]interface{}) (string, error) {
 		}
 	}
 
-	result, _ := json.Marshal(imports)
+	result, err := json.Marshal(imports)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal imports: %w", err)
+	}
 	return string(result), nil
 }
 
@@ -378,11 +400,14 @@ func toolAnalyzeFunction(args map[string]interface{}) (string, error) {
 		return "", fmt.Errorf("function %s not found", functionName)
 	}
 
-	result, _ := json.Marshal(map[string]interface{}{
+	result, err := json.Marshal(map[string]interface{}{
 		"name":      functionName,
 		"file":      filePath,
 		"signature": matches[0],
 	})
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal result: %w", err)
+	}
 	return string(result), nil
 }
 

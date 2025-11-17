@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -128,8 +129,15 @@ func handleToolsList(msg *MCPMessage, encoder *json.Encoder) {
 
 func handleToolCall(msg *MCPMessage, encoder *json.Encoder) {
 	var req ToolsCallRequest
-	reqJSON, _ := json.Marshal(msg.Params)
-	json.Unmarshal(reqJSON, &req)
+	reqJSON, err := json.Marshal(msg.Params)
+	if err != nil {
+		sendError(encoder, msg.ID, -32602, fmt.Sprintf("failed to marshal params: %v", err), nil)
+		return
+	}
+	if err := json.Unmarshal(reqJSON, &req); err != nil {
+		sendError(encoder, msg.ID, -32602, fmt.Sprintf("failed to unmarshal params: %v", err), nil)
+		return
+	}
 
 	if req.Name == "apply_operations" {
 		handleBatchOperations(msg, encoder, req.Arguments)
@@ -144,6 +152,11 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 	operations, ok := args["operations"].([]interface{})
 	if !ok {
 		sendError(encoder, msg.ID, -32602, "operations array is required", nil)
+		return
+	}
+
+	if len(operations) == 0 {
+		sendError(encoder, msg.ID, -32602, "operations array cannot be empty", nil)
 		return
 	}
 
@@ -288,7 +301,10 @@ func toolListDirectory(args map[string]interface{}) (string, error) {
 		names = append(names, entry.Name())
 	}
 
-	result, _ := json.Marshal(names)
+	result, err := json.Marshal(names)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal directory listing: %w", err)
+	}
 	return string(result), nil
 }
 
@@ -306,19 +322,33 @@ func toolGetFileTree(args map[string]interface{}) (string, error) {
 	fullPath := resolvePath(rootPath)
 	var tree []string
 
-	err := filepath.Walk(fullPath, func(path string, info os.FileInfo, err error) error {
+	err := filepath.WalkDir(fullPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
 		rel, _ := filepath.Rel(fullPath, path)
-		depth := len(strings.Split(rel, string(filepath.Separator)))
+		// Handle root directory correctly - if rel is ".", depth should be 0
+		var depth int
+		if rel == "." {
+			depth = 0
+		} else {
+			parts := strings.Split(rel, string(filepath.Separator))
+			// Filter out empty parts (can happen with trailing separators)
+			var nonEmptyParts []string
+			for _, part := range parts {
+				if part != "" {
+					nonEmptyParts = append(nonEmptyParts, part)
+				}
+			}
+			depth = len(nonEmptyParts)
+		}
 		if depth > maxDepth {
 			return filepath.SkipDir
 		}
 
 		if rel != "." {
-			if info.IsDir() {
+			if d.IsDir() {
 				tree = append(tree, rel+"/")
 			} else {
 				tree = append(tree, rel)
@@ -332,7 +362,10 @@ func toolGetFileTree(args map[string]interface{}) (string, error) {
 		return "", fmt.Errorf("failed to walk directory: %w", err)
 	}
 
-	result, _ := json.Marshal(tree)
+	result, err := json.Marshal(tree)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal file tree: %w", err)
+	}
 	return string(result), nil
 }
 
@@ -348,7 +381,10 @@ func toolFileExists(args map[string]interface{}) (string, error) {
 		exists = false
 	}
 
-	result, _ := json.Marshal(exists)
+	result, err := json.Marshal(exists)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal result: %w", err)
+	}
 	return string(result), nil
 }
 
@@ -363,7 +399,14 @@ func toolCreateDirectory(args map[string]interface{}) (string, error) {
 	// Check if it already exists
 	if info, err := os.Stat(fullPath); err == nil {
 		if info.IsDir() {
-			return fmt.Sprintf("Directory already exists: %s", path), nil
+			result, err := json.Marshal(map[string]interface{}{
+				"message": fmt.Sprintf("Directory already exists: %s", path),
+				"path":    path,
+			})
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal result: %w", err)
+			}
+			return string(result), nil
 		}
 		return "", fmt.Errorf("path exists but is not a directory: %s", path)
 	}
@@ -373,7 +416,14 @@ func toolCreateDirectory(args map[string]interface{}) (string, error) {
 		return "", fmt.Errorf("failed to create directory '%s': %w", path, err)
 	}
 
-	return fmt.Sprintf("Directory created successfully: %s", path), nil
+	result, err := json.Marshal(map[string]interface{}{
+		"message": fmt.Sprintf("Directory created successfully: %s", path),
+		"path":    path,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal result: %w", err)
+	}
+	return string(result), nil
 }
 
 func resolvePath(path string) string {

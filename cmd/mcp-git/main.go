@@ -92,10 +92,10 @@ func handleToolsList(msg *MCPMessage, encoder *json.Encoder) {
 				"type": "object",
 				"properties": map[string]interface{}{
 					"operations": map[string]interface{}{
-						"type": "array",
+						"type":        "array",
 						"description": "List of operations to execute",
 						"items": map[string]interface{}{
-							"type": "object",
+							"type":        "object",
 							"description": "Operation object with 'type' field and operation-specific parameters",
 							"properties": map[string]interface{}{
 								"type": map[string]interface{}{
@@ -124,8 +124,15 @@ func handleToolsList(msg *MCPMessage, encoder *json.Encoder) {
 
 func handleToolCall(msg *MCPMessage, encoder *json.Encoder) {
 	var req ToolsCallRequest
-	reqJSON, _ := json.Marshal(msg.Params)
-	json.Unmarshal(reqJSON, &req)
+	reqJSON, err := json.Marshal(msg.Params)
+	if err != nil {
+		sendError(encoder, msg.ID, -32602, fmt.Sprintf("failed to marshal params: %v", err), nil)
+		return
+	}
+	if err := json.Unmarshal(reqJSON, &req); err != nil {
+		sendError(encoder, msg.ID, -32602, fmt.Sprintf("failed to unmarshal params: %v", err), nil)
+		return
+	}
 
 	if req.Name == "apply_operations" {
 		handleBatchOperations(msg, encoder, req.Arguments)
@@ -143,6 +150,11 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 		return
 	}
 
+	if len(operations) == 0 {
+		sendError(encoder, msg.ID, -32602, "operations array cannot be empty", nil)
+		return
+	}
+
 	var results []map[string]interface{}
 	var successCount int
 	var errorCount int
@@ -151,10 +163,10 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 		opMap, ok := op.(map[string]interface{})
 		if !ok {
 			results = append(results, map[string]interface{}{
-				"index": i,
-				"type":  "unknown",
+				"index":   i,
+				"type":    "unknown",
 				"success": false,
-				"error":  "Invalid operation format",
+				"error":   "Invalid operation format",
 			})
 			errorCount++
 			continue
@@ -163,10 +175,10 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 		opType, ok := opMap["type"].(string)
 		if !ok {
 			results = append(results, map[string]interface{}{
-				"index": i,
-				"type":  "unknown",
+				"index":   i,
+				"type":    "unknown",
 				"success": false,
-				"error":  "Operation type is required",
+				"error":   "Operation type is required",
 			})
 			errorCount++
 			continue
@@ -197,11 +209,11 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 
 		if err != nil {
 			results = append(results, map[string]interface{}{
-				"index": i,
-				"type":  opType,
+				"index":   i,
+				"type":    opType,
 				"success": false,
-				"error":  err.Error(),
-				"result": nil,
+				"error":   err.Error(),
+				"result":  nil,
 			})
 			errorCount++
 		} else {
@@ -215,11 +227,11 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 			}
 
 			results = append(results, map[string]interface{}{
-				"index": i,
-				"type":  opType,
+				"index":   i,
+				"type":    opType,
 				"success": true,
-				"result": parsedResult,
-				"error":  nil,
+				"result":  parsedResult,
+				"error":   nil,
 			})
 			successCount++
 		}
@@ -249,9 +261,9 @@ func toolGetGitStatus(args map[string]interface{}) (string, error) {
 
 	cmd := exec.Command("git", "status", "--porcelain")
 	cmd.Dir = repoPath
-	output, err := cmd.Output()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("failed to get git status: %w", err)
+		return "", fmt.Errorf("failed to get git status: %w\nOutput: %s", err, string(output))
 	}
 
 	return string(output), nil
@@ -278,9 +290,9 @@ func toolGetFileDiff(args map[string]interface{}) (string, error) {
 
 	cmd := exec.Command("git", "diff", baseBranch, "--", relPath)
 	cmd.Dir = repoPath
-	output, err := cmd.Output()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("failed to get diff: %w", err)
+		return "", fmt.Errorf("failed to get diff: %w\nOutput: %s", err, string(output))
 	}
 
 	return string(output), nil
@@ -307,12 +319,17 @@ func toolGetCommitHistory(args map[string]interface{}) (string, error) {
 
 	cmd := exec.Command("git", "log", fmt.Sprintf("-%d", limit), "--pretty=format:%H|%an|%ae|%ad|%s", "--date=iso", "--", relPath)
 	cmd.Dir = repoPath
-	output, err := cmd.Output()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("failed to get commit history: %w", err)
+		return "", fmt.Errorf("failed to get commit history: %w\nOutput: %s", err, string(output))
 	}
 
-	commits := strings.Split(strings.TrimSpace(string(output)), "\n")
+	outputStr := strings.TrimSpace(string(output))
+	var commits []string
+	if outputStr != "" {
+		commits = strings.Split(outputStr, "\n")
+	}
+
 	var result []map[string]interface{}
 	for _, commit := range commits {
 		if commit == "" {
@@ -330,7 +347,10 @@ func toolGetCommitHistory(args map[string]interface{}) (string, error) {
 		}
 	}
 
-	jsonResult, _ := json.Marshal(result)
+	jsonResult, err := json.Marshal(result)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal commit history: %w", err)
+	}
 	return string(jsonResult), nil
 }
 
@@ -411,4 +431,3 @@ type Content struct {
 	Type string `json:"type"`
 	Text string `json:"text,omitempty"`
 }
-

@@ -123,8 +123,15 @@ func handleToolsList(msg *MCPMessage, encoder *json.Encoder) {
 
 func handleToolCall(msg *MCPMessage, encoder *json.Encoder) {
 	var req ToolsCallRequest
-	reqJSON, _ := json.Marshal(msg.Params)
-	json.Unmarshal(reqJSON, &req)
+	reqJSON, err := json.Marshal(msg.Params)
+	if err != nil {
+		sendError(encoder, msg.ID, -32602, fmt.Sprintf("failed to marshal params: %v", err), nil)
+		return
+	}
+	if err := json.Unmarshal(reqJSON, &req); err != nil {
+		sendError(encoder, msg.ID, -32602, fmt.Sprintf("failed to unmarshal params: %v", err), nil)
+		return
+	}
 
 	if req.Name == "apply_operations" {
 		handleBatchOperations(msg, encoder, req.Arguments)
@@ -139,6 +146,11 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 	operations, ok := args["operations"].([]interface{})
 	if !ok {
 		sendError(encoder, msg.ID, -32602, "operations array is required", nil)
+		return
+	}
+
+	if len(operations) == 0 {
+		sendError(encoder, msg.ID, -32602, "operations array cannot be empty", nil)
 		return
 	}
 
@@ -262,7 +274,10 @@ func toolApplyDiff(args map[string]interface{}) (string, error) {
 
 	// Read current file
 	currentContent, err := os.ReadFile(fullPath)
-	if err != nil && !os.IsNotExist(err) {
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("file does not exist: %s", filePath)
+		}
 		return "", fmt.Errorf("failed to read file: %w", err)
 	}
 
