@@ -258,6 +258,11 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 	encoder.Encode(response)
 }
 
+func shouldSkipDir(dirName string) bool {
+	// Skip hidden directories (starting with dot)
+	return len(dirName) > 0 && dirName[0] == '.'
+}
+
 func toolSearchCode(args map[string]interface{}) (string, error) {
 	query, ok := args["query"].(string)
 	if !ok {
@@ -289,6 +294,10 @@ func toolSearchCode(args map[string]interface{}) (string, error) {
 			return nil
 		}
 		if d.IsDir() {
+			// Skip hidden directories (including .git)
+			if shouldSkipDir(d.Name()) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 

@@ -308,6 +308,11 @@ func toolListDirectory(args map[string]interface{}) (string, error) {
 	return string(result), nil
 }
 
+func shouldSkipDir(dirName string) bool {
+	// Skip hidden directories (starting with dot)
+	return len(dirName) > 0 && dirName[0] == '.'
+}
+
 func toolGetFileTree(args map[string]interface{}) (string, error) {
 	rootPath, ok := args["root_path"].(string)
 	if !ok {
@@ -325,6 +330,11 @@ func toolGetFileTree(args map[string]interface{}) (string, error) {
 	err := filepath.WalkDir(fullPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+
+		// Skip hidden directories (including .git)
+		if d.IsDir() && shouldSkipDir(d.Name()) {
+			return filepath.SkipDir
 		}
 
 		rel, _ := filepath.Rel(fullPath, path)
