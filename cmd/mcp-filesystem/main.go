@@ -288,12 +288,12 @@ func toolListDirectory(args map[string]interface{}) (string, error) {
 	
 	// Check if path exists first
 	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-		return "", fmt.Errorf("directory does not exist: %s. Use 'file_exists' to check if a directory exists, or use 'create_directory' to create it first", path)
+		return "", fmt.Errorf("directory does not exist: %s", path)
 	}
 	
 	entries, err := os.ReadDir(fullPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to list directory '%s': %w. Hint: Use 'file_exists' to check if the directory exists, or 'create_directory' to create it", path, err)
+		return "", fmt.Errorf("failed to list directory '%s': %w", path, err)
 	}
 
 	var names []string
