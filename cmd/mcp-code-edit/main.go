@@ -254,20 +254,100 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 	encoder.Encode(response)
 }
 
+// getFilePath extracts file path from args, accepting both "path" and "file_path"
+func getFilePath(args map[string]interface{}) (string, error) {
+	if filePath, ok := args["file_path"].(string); ok && filePath != "" {
+		return filePath, nil
+	}
+	if filePath, ok := args["path"].(string); ok && filePath != "" {
+		return filePath, nil
+	}
+	return "", fmt.Errorf("file_path or path is required")
+}
+
+// applyUnifiedDiff applies a unified diff to a file
+func applyUnifiedDiff(fileContent, diff string) (string, error) {
+	fileLines := strings.Split(fileContent, "\n")
+	diffLines := strings.Split(diff, "\n")
+
+	var newLines []string
+	fileIdx := 0
+	inHunk := false
+
+	for i := 0; i < len(diffLines); i++ {
+		line := diffLines[i]
+
+		// Skip diff header lines
+		if strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++") {
+			continue
+		}
+
+		// Parse hunk header (e.g., "@@ -1,4 +1,9 @@")
+		if strings.HasPrefix(line, "@@") {
+			inHunk = true
+			// Extract the old line range
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				oldRange := parts[1] // e.g., "-1,4"
+				if strings.HasPrefix(oldRange, "-") {
+					oldRange = oldRange[1:]
+					rangeParts := strings.Split(oldRange, ",")
+					if len(rangeParts) > 0 {
+						var startLine int
+						fmt.Sscanf(rangeParts[0], "%d", &startLine)
+						// Adjust to 0-based index
+						if startLine > 0 {
+							fileIdx = startLine - 1
+						}
+					}
+				}
+			}
+			continue
+		}
+
+		if !inHunk {
+			continue
+		}
+
+		// Process diff lines
+		if len(line) == 0 {
+			// Empty line - preserve it
+			if fileIdx < len(fileLines) {
+				newLines = append(newLines, fileLines[fileIdx])
+				fileIdx++
+			} else {
+				newLines = append(newLines, "")
+			}
+		} else if line[0] == ' ' {
+			// Context line - keep existing line
+			if fileIdx < len(fileLines) {
+				newLines = append(newLines, fileLines[fileIdx])
+				fileIdx++
+			}
+		} else if line[0] == '-' {
+			// Removed line - skip it (don't add to newLines, advance fileIdx)
+			if fileIdx < len(fileLines) {
+				fileIdx++
+			}
+		} else if line[0] == '+' {
+			// Added line - add it (don't advance fileIdx)
+			newLines = append(newLines, line[1:])
+		}
+	}
+
+	// Add remaining lines from original file
+	for fileIdx < len(fileLines) {
+		newLines = append(newLines, fileLines[fileIdx])
+		fileIdx++
+	}
+
+	return strings.Join(newLines, "\n"), nil
+}
+
 func toolApplyDiff(args map[string]interface{}) (string, error) {
-	filePath, ok := args["file_path"].(string)
-	if !ok {
-		return "", fmt.Errorf("file_path is required")
-	}
-
-	oldContent, ok := args["old_content"].(string)
-	if !ok {
-		return "", fmt.Errorf("old_content is required")
-	}
-
-	newContent, ok := args["new_content"].(string)
-	if !ok {
-		return "", fmt.Errorf("new_content is required")
+	filePath, err := getFilePath(args)
+	if err != nil {
+		return "", err
 	}
 
 	fullPath := resolvePath(filePath)
@@ -282,13 +362,34 @@ func toolApplyDiff(args map[string]interface{}) (string, error) {
 	}
 
 	currentStr := string(currentContent)
+	var newFileContent string
 
-	// Replace old_content with new_content
-	if !strings.Contains(currentStr, oldContent) {
-		return "", fmt.Errorf("old_content not found in file")
+	// Check if diff format is provided
+	if diff, ok := args["diff"].(string); ok && diff != "" {
+		// Apply unified diff format
+		newFileContent, err = applyUnifiedDiff(currentStr, diff)
+		if err != nil {
+			return "", fmt.Errorf("failed to apply diff: %w", err)
+		}
+	} else {
+		// Use old_content/new_content format
+		oldContent, ok := args["old_content"].(string)
+		if !ok {
+			return "", fmt.Errorf("old_content or diff is required")
+		}
+
+		newContent, ok := args["new_content"].(string)
+		if !ok {
+			return "", fmt.Errorf("new_content or diff is required")
+		}
+
+		// Replace old_content with new_content
+		if !strings.Contains(currentStr, oldContent) {
+			return "", fmt.Errorf("old_content not found in file")
+		}
+
+		newFileContent = strings.Replace(currentStr, oldContent, newContent, 1)
 	}
-
-	newFileContent := strings.Replace(currentStr, oldContent, newContent, 1)
 
 	// Ensure directory exists
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
@@ -304,9 +405,9 @@ func toolApplyDiff(args map[string]interface{}) (string, error) {
 }
 
 func toolReplaceCode(args map[string]interface{}) (string, error) {
-	filePath, ok := args["file_path"].(string)
-	if !ok {
-		return "", fmt.Errorf("file_path is required")
+	filePath, err := getFilePath(args)
+	if err != nil {
+		return "", err
 	}
 
 	oldCode, ok := args["old_code"].(string)
@@ -342,9 +443,9 @@ func toolReplaceCode(args map[string]interface{}) (string, error) {
 }
 
 func toolCreateFile(args map[string]interface{}) (string, error) {
-	filePath, ok := args["file_path"].(string)
-	if !ok {
-		return "", fmt.Errorf("file_path is required")
+	filePath, err := getFilePath(args)
+	if err != nil {
+		return "", err
 	}
 
 	content, ok := args["content"].(string)
@@ -373,9 +474,9 @@ func toolCreateFile(args map[string]interface{}) (string, error) {
 }
 
 func toolDeleteFile(args map[string]interface{}) (string, error) {
-	filePath, ok := args["file_path"].(string)
-	if !ok {
-		return "", fmt.Errorf("file_path is required")
+	filePath, err := getFilePath(args)
+	if err != nil {
+		return "", err
 	}
 
 	fullPath := resolvePath(filePath)
