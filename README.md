@@ -39,6 +39,8 @@ Provides code modification tools:
 - `replace_code(file_path, old_code, new_code)` - Replace a code block in a file
 - `create_file(file_path, content)` - Create a new file with content
 - `delete_file(file_path)` - Delete a file
+- `rename_file(old_path, new_path)` - Rename or move a file (also accepts `move_file` as alias)
+- `copy_file(source_path, destination_path)` - Copy a file to a new location
 
 ## Prerequisites
 

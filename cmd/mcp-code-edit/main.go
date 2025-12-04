@@ -99,7 +99,7 @@ func handleToolsList(msg *MCPMessage, encoder *json.Encoder) {
 							"properties": map[string]interface{}{
 								"type": map[string]interface{}{
 									"type":        "string",
-									"description": "Operation type: apply_diff, replace_code, create_file, delete_file",
+									"description": "Operation type: apply_diff, replace_code, create_file, delete_file, rename_file, move_file, copy_file",
 								},
 							},
 						},
@@ -204,6 +204,10 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 			result, err = toolCreateFile(opArgs)
 		case "delete_file":
 			result, err = toolDeleteFile(opArgs)
+		case "rename_file", "move_file":
+			result, err = toolRenameFile(opArgs)
+		case "copy_file":
+			result, err = toolCopyFile(opArgs)
 		default:
 			err = fmt.Errorf("unknown operation type: %s", opType)
 		}
@@ -486,6 +490,108 @@ func toolDeleteFile(args map[string]interface{}) (string, error) {
 	}
 
 	return "File deleted successfully", nil
+}
+
+func toolRenameFile(args map[string]interface{}) (string, error) {
+	// Accept both old_path/new_path and source_path/destination_path
+	var oldPath, newPath string
+	var ok bool
+
+	if oldPath, ok = args["old_path"].(string); !ok || oldPath == "" {
+		if oldPath, ok = args["source_path"].(string); !ok || oldPath == "" {
+			return "", fmt.Errorf("old_path or source_path is required")
+		}
+	}
+
+	if newPath, ok = args["new_path"].(string); !ok || newPath == "" {
+		if newPath, ok = args["destination_path"].(string); !ok || newPath == "" {
+			return "", fmt.Errorf("new_path or destination_path is required")
+		}
+	}
+
+	oldFullPath := resolvePath(oldPath)
+	newFullPath := resolvePath(newPath)
+
+	// Check if source file exists
+	if _, err := os.Stat(oldFullPath); os.IsNotExist(err) {
+		return "", fmt.Errorf("source file does not exist: %s", oldPath)
+	}
+
+	// Check if destination already exists
+	if _, err := os.Stat(newFullPath); err == nil {
+		return "", fmt.Errorf("destination file already exists: %s", newPath)
+	}
+
+	// Ensure destination directory exists
+	if err := os.MkdirAll(filepath.Dir(newFullPath), 0755); err != nil {
+		return "", fmt.Errorf("failed to create destination directory: %w", err)
+	}
+
+	// Perform rename/move operation
+	if err := os.Rename(oldFullPath, newFullPath); err != nil {
+		return "", fmt.Errorf("failed to rename file: %w", err)
+	}
+
+	return "File renamed successfully", nil
+}
+
+func toolCopyFile(args map[string]interface{}) (string, error) {
+	// Accept both source_path/destination_path and old_path/new_path
+	var sourcePath, destPath string
+	var ok bool
+
+	if sourcePath, ok = args["source_path"].(string); !ok || sourcePath == "" {
+		if sourcePath, ok = args["old_path"].(string); !ok || sourcePath == "" {
+			return "", fmt.Errorf("source_path or old_path is required")
+		}
+	}
+
+	if destPath, ok = args["destination_path"].(string); !ok || destPath == "" {
+		if destPath, ok = args["new_path"].(string); !ok || destPath == "" {
+			return "", fmt.Errorf("destination_path or new_path is required")
+		}
+	}
+
+	sourceFullPath := resolvePath(sourcePath)
+	destFullPath := resolvePath(destPath)
+
+	// Check if source file exists
+	sourceInfo, err := os.Stat(sourceFullPath)
+	if os.IsNotExist(err) {
+		return "", fmt.Errorf("source file does not exist: %s", sourcePath)
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to stat source file: %w", err)
+	}
+
+	// Check if source is a directory
+	if sourceInfo.IsDir() {
+		return "", fmt.Errorf("source path is a directory, not a file: %s", sourcePath)
+	}
+
+	// Check if destination already exists
+	if _, err := os.Stat(destFullPath); err == nil {
+		return "", fmt.Errorf("destination file already exists: %s", destPath)
+	}
+
+	// Ensure destination directory exists
+	if err := os.MkdirAll(filepath.Dir(destFullPath), 0755); err != nil {
+		return "", fmt.Errorf("failed to create destination directory: %w", err)
+	}
+
+	// Read source file
+	sourceContent, err := os.ReadFile(sourceFullPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read source file: %w", err)
+	}
+
+	// Write to destination with same permissions
+	fileMode := sourceInfo.Mode()
+	if err := os.WriteFile(destFullPath, sourceContent, fileMode); err != nil {
+		return "", fmt.Errorf("failed to write destination file: %w", err)
+	}
+
+	return "File copied successfully", nil
 }
 
 func resolvePath(path string) string {
