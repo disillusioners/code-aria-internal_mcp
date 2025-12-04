@@ -414,14 +414,23 @@ func toolReplaceCode(args map[string]interface{}) (string, error) {
 		return "", err
 	}
 
-	oldCode, ok := args["old_code"].(string)
-	if !ok {
-		return "", fmt.Errorf("old_code is required")
+	// Support both old_code/old_content and new_code/new_content for flexibility
+	var oldCode string
+	var ok bool
+
+	// Try old_code first, then fall back to old_content
+	if oldCode, ok = args["old_code"].(string); !ok {
+		if oldCode, ok = args["old_content"].(string); !ok {
+			return "", fmt.Errorf("old_code or old_content is required")
+		}
 	}
 
-	newCode, ok := args["new_code"].(string)
-	if !ok {
-		return "", fmt.Errorf("new_code is required")
+	var newCode string
+	// Try new_code first, then fall back to new_content
+	if newCode, ok = args["new_code"].(string); !ok {
+		if newCode, ok = args["new_content"].(string); !ok {
+			return "", fmt.Errorf("new_code or new_content is required")
+		}
 	}
 
 	fullPath := resolvePath(filePath)

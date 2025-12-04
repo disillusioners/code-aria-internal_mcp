@@ -36,7 +36,7 @@ Provides git operations:
 
 Provides code modification tools:
 - `apply_diff(file_path, old_content, new_content)` - Apply a diff to a file (replace old_content with new_content)
-- `replace_code(file_path, old_code, new_code)` - Replace a code block in a file
+- `replace_code(file_path, old_code, new_code)` - Replace a code block in a file (also accepts `old_content`/`new_content` as aliases)
 - `create_file(file_path, content)` - Create a new file with content
 - `delete_file(file_path)` - Delete a file
 - `rename_file(old_path, new_path)` - Rename or move a file (also accepts `move_file` as alias)
