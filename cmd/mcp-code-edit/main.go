@@ -155,39 +155,35 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 	}
 
 	var results []map[string]interface{}
-	var successCount int
-	var errorCount int
 
-	for i, op := range operations {
+	for _, op := range operations {
 		opMap, ok := op.(map[string]interface{})
 		if !ok {
 			results = append(results, map[string]interface{}{
-				"index":   i,
-				"type":    "unknown",
-				"success": false,
-				"error":   "Invalid operation format",
+				"operation": "unknown",
+				"params":    map[string]interface{}{},
+				"status":    "Error",
+				"message":   "Invalid operation format",
 			})
-			errorCount++
 			continue
 		}
 
 		opType, ok := opMap["type"].(string)
 		if !ok {
 			results = append(results, map[string]interface{}{
-				"index":   i,
-				"type":    "unknown",
-				"success": false,
-				"error":   "Operation type is required",
+				"operation": "unknown",
+				"params":    map[string]interface{}{},
+				"status":    "Error",
+				"message":   "Operation type is required",
 			})
-			errorCount++
 			continue
 		}
 
-		// Extract operation-specific arguments
-		opArgs := make(map[string]interface{})
+		// Extract operation-specific arguments as params
+		params := make(map[string]interface{})
 		for k, v := range opMap {
 			if k != "type" {
-				opArgs[k] = v
+				params[k] = v
 			}
 		}
 
@@ -197,30 +193,28 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 
 		switch opType {
 		case "apply_diff":
-			result, err = toolApplyDiff(opArgs)
+			result, err = toolApplyDiff(params)
 		case "replace_code":
-			result, err = toolReplaceCode(opArgs)
+			result, err = toolReplaceCode(params)
 		case "create_file":
-			result, err = toolCreateFile(opArgs)
+			result, err = toolCreateFile(params)
 		case "delete_file":
-			result, err = toolDeleteFile(opArgs)
+			result, err = toolDeleteFile(params)
 		case "rename_file", "move_file":
-			result, err = toolRenameFile(opArgs)
+			result, err = toolRenameFile(params)
 		case "copy_file":
-			result, err = toolCopyFile(opArgs)
+			result, err = toolCopyFile(params)
 		default:
 			err = fmt.Errorf("unknown operation type: %s", opType)
 		}
 
 		if err != nil {
 			results = append(results, map[string]interface{}{
-				"index":   i,
-				"type":    opType,
-				"success": false,
-				"error":   err.Error(),
-				"result":  nil,
+				"operation": opType,
+				"params":    params,
+				"status":    "Error",
+				"message":   err.Error(),
 			})
-			errorCount++
 		} else {
 			// Parse JSON result if possible, otherwise use as string
 			var parsedResult interface{}
@@ -232,25 +226,19 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 			}
 
 			results = append(results, map[string]interface{}{
-				"index":   i,
-				"type":    opType,
-				"success": true,
-				"result":  parsedResult,
-				"error":   nil,
+				"operation": opType,
+				"params":    params,
+				"status":    "Success",
+				"result":    parsedResult,
 			})
-			successCount++
 		}
 	}
 
-	// Create response
-	summary := fmt.Sprintf("Batch operations completed: %d succeeded, %d failed", successCount, errorCount)
+	// Return results in format expected by client: {"results": [...]}
 	response := MCPMessage{
 		JSONRPC: "2.0",
 		ID:      msg.ID,
 		Result: map[string]interface{}{
-			"content": []Content{
-				{Type: "text", Text: summary},
-			},
 			"results": results,
 		},
 	}
