@@ -8,6 +8,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
 func main() {
@@ -261,14 +265,41 @@ func toolGetGitStatus(args map[string]interface{}) (string, error) {
 		return "", fmt.Errorf("REPO_PATH not set")
 	}
 
-	cmd := exec.Command("git", "status", "--porcelain")
-	cmd.Dir = repoPath
-	output, err := cmd.CombinedOutput()
+	// Open repository using go-git
+	r, err := git.PlainOpen(repoPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to get git status: %w\nOutput: %s", err, string(output))
+		return "", fmt.Errorf("failed to open repository: %w", err)
 	}
 
-	return string(output), nil
+	w, err := r.Worktree()
+	if err != nil {
+		return "", fmt.Errorf("failed to get worktree: %w", err)
+	}
+
+	// Get status
+	status, err := w.Status()
+	if err != nil {
+		return "", fmt.Errorf("failed to get git status: %w", err)
+	}
+
+	// Convert status to porcelain format
+	var result strings.Builder
+	for file, s := range status {
+		// Convert worktree status to porcelain format
+		// X = staged status, Y = unstaged status
+		x := string(s.Staging)
+		y := string(s.Worktree)
+
+		// Handle untracked files
+		if s.Worktree == '?' {
+			x = "?"
+			y = "?"
+		}
+
+		result.WriteString(fmt.Sprintf("%s%s %s\n", x, y, file))
+	}
+
+	return result.String(), nil
 }
 
 func toolGetFileDiff(args map[string]interface{}) (string, error) {
@@ -285,39 +316,63 @@ func toolGetFileDiff(args map[string]interface{}) (string, error) {
 	fullPath := resolvePath(filePath)
 	relPath, _ := filepath.Rel(repoPath, fullPath)
 
-	var cmd *exec.Cmd
-
 	// Priority 1: Check if compare_working is true (uncommitted changes)
 	if compareWorking, ok := args["compare_working"].(bool); ok && compareWorking {
-		cmd = exec.Command("git", "diff", "HEAD", "--", relPath)
+		// Get diff between working directory and HEAD using git command for now
+		// TODO: Implement proper go-git diff for working directory
+		cmd := exec.Command("git", "diff", "HEAD", "--", relPath)
+		cmd.Dir = repoPath
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("failed to get diff: %w\nOutput: %s", err, string(output))
+		}
+		return string(output), nil
 	} else if baseCommit, ok := args["base_commit"].(string); ok && baseCommit != "" {
 		// Priority 2: Commit comparison (base_commit and optionally target_commit)
 		targetCommit := "HEAD"
 		if tc, ok := args["target_commit"].(string); ok && tc != "" {
 			targetCommit = tc
 		}
-		cmd = exec.Command("git", "diff", baseCommit, targetCommit, "--", relPath)
+
+		// Get diff between commits using git command for now
+		// TODO: Implement proper go-git diff for commits
+		cmd := exec.Command("git", "diff", baseCommit, targetCommit, "--", relPath)
+		cmd.Dir = repoPath
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("failed to get diff: %w\nOutput: %s", err, string(output))
+		}
+		return string(output), nil
 	} else {
 		// Priority 3: Branch comparison (current behavior)
 		baseBranch := "main"
 		if bb, ok := args["base_branch"].(string); ok && bb != "" {
 			baseBranch = bb
 		}
+
 		// If base_branch is "HEAD" or empty, compare working directory
 		if baseBranch == "HEAD" || baseBranch == "" {
-			cmd = exec.Command("git", "diff", "HEAD", "--", relPath)
+			// Get diff between working directory and HEAD using git command for now
+			// TODO: Implement proper go-git diff for working directory
+			cmd := exec.Command("git", "diff", "HEAD", "--", relPath)
+			cmd.Dir = repoPath
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				return "", fmt.Errorf("failed to get diff: %w\nOutput: %s", err, string(output))
+			}
+			return string(output), nil
 		} else {
-			cmd = exec.Command("git", "diff", baseBranch, "--", relPath)
+			// Get diff between branches using git command for now
+			// TODO: Implement proper go-git diff for branches
+			cmd := exec.Command("git", "diff", baseBranch, "--", relPath)
+			cmd.Dir = repoPath
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				return "", fmt.Errorf("failed to get diff: %w\nOutput: %s", err, string(output))
+			}
+			return string(output), nil
 		}
 	}
-
-	cmd.Dir = repoPath
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("failed to get diff: %w\nOutput: %s", err, string(output))
-	}
-
-	return string(output), nil
 }
 
 func toolGetCommitHistory(args map[string]interface{}) (string, error) {
@@ -336,37 +391,73 @@ func toolGetCommitHistory(args map[string]interface{}) (string, error) {
 		limit = int(l)
 	}
 
+	// Open repository using go-git
+	r, err := git.PlainOpen(repoPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open repository: %w", err)
+	}
+
 	fullPath := resolvePath(filePath)
 	relPath, _ := filepath.Rel(repoPath, fullPath)
 
-	cmd := exec.Command("git", "log", fmt.Sprintf("-%d", limit), "--pretty=format:%H|%an|%ae|%ad|%s", "--date=iso", "--", relPath)
-	cmd.Dir = repoPath
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("failed to get commit history: %w\nOutput: %s", err, string(output))
-	}
-
-	outputStr := strings.TrimSpace(string(output))
-	var commits []string
-	if outputStr != "" {
-		commits = strings.Split(outputStr, "\n")
-	}
-
+	// Get commit history using go-git
 	var result []map[string]interface{}
-	for _, commit := range commits {
-		if commit == "" {
-			continue
+
+	// Get HEAD reference to start from
+	head, err := r.Head()
+	if err != nil {
+		return "", fmt.Errorf("failed to get HEAD: %w", err)
+	}
+
+	// Get commit iterator
+	commitIter, err := r.Log(&git.LogOptions{
+		From:  head.Hash(),
+		Order: git.LogOrderCommitterTime,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to get commit history: %w", err)
+	}
+
+	// Iterate through commits
+	err = commitIter.ForEach(func(c *object.Commit) error {
+		// Check if file was modified in this commit
+		fileChanged := false
+		if len(relPath) > 0 {
+			// Check if file was modified in this commit by checking file stats
+			stats, err := c.Stats()
+			if err == nil {
+				for _, stat := range stats {
+					if strings.Contains(stat.Name, relPath) {
+						fileChanged = true
+						break
+					}
+				}
+			}
+		} else {
+			fileChanged = true // If no specific file, include all commits
 		}
-		parts := strings.SplitN(commit, "|", 5)
-		if len(parts) == 5 {
+
+		if fileChanged {
 			result = append(result, map[string]interface{}{
-				"hash":    parts[0],
-				"author":  parts[1],
-				"email":   parts[2],
-				"date":    parts[3],
-				"message": parts[4],
+				"hash":    c.Hash.String(),
+				"author":  c.Author.Name,
+				"email":   c.Author.Email,
+				"date":    c.Author.When.Format(time.RFC3339),
+				"message": c.Message,
 			})
 		}
+
+		// Stop if we reached the limit
+		if len(result) >= limit {
+			return fmt.Errorf("limit reached")
+		}
+
+		return nil
+	})
+
+	// Ignore "limit reached" error as it's expected
+	if err != nil && err.Error() != "limit reached" {
+		return "", fmt.Errorf("failed to iterate commits: %w", err)
 	}
 
 	jsonResult, err := json.Marshal(result)
@@ -446,14 +537,24 @@ func toolGetChangedFiles(args map[string]interface{}) (string, error) {
 		if tb, ok := args["target_branch"].(string); ok && tb != "" {
 			targetBranch = tb
 		} else {
-			// Get current branch
-			cmd = exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
-			cmd.Dir = repoPath
-			output, err := cmd.CombinedOutput()
+			// Get current branch using go-git
+			r, err := git.PlainOpen(repoPath)
 			if err != nil {
-				return "", fmt.Errorf("failed to get current branch: %w\nOutput: %s", err, string(output))
+				return "", fmt.Errorf("failed to open repository: %w", err)
 			}
-			targetBranch = strings.TrimSpace(string(output))
+
+			head, err := r.Head()
+			if err != nil {
+				return "", fmt.Errorf("failed to get HEAD: %w", err)
+			}
+
+			// Extract branch name from HEAD reference
+			headName := head.Name().String()
+			if strings.HasPrefix(headName, "refs/heads/") {
+				targetBranch = strings.TrimPrefix(headName, "refs/heads/")
+			} else {
+				targetBranch = headName
+			}
 		}
 
 		if includeStatus {
@@ -554,6 +655,19 @@ func resolvePath(path string) string {
 	}
 
 	return filepath.Join(repoPath, path)
+}
+
+// formatPatch converts go-git patch objects to string format
+func formatPatch(patch object.Changes) string {
+	var result strings.Builder
+	for _, change := range patch {
+		patchStr, err := change.Patch()
+		if err != nil {
+			continue
+		}
+		result.WriteString(patchStr.String())
+	}
+	return result.String()
 }
 
 func sendError(encoder *json.Encoder, id interface{}, code int, message string, data interface{}) {
