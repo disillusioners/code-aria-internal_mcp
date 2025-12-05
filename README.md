@@ -28,8 +28,25 @@ Provides code analysis tools:
 ### 3. mcp-git
 
 Provides git operations:
-- `get_git_status(repo_path)` - Get git status for the repository
-- `get_file_diff(file_path, base_branch)` - Get diff for a file against a base branch
+
+**Overview Queries (File List)**:
+- `get_git_status(repo_path)` - Get git status for uncommitted changes (file list)
+- `get_changed_files(comparison_type, ...)` - Get list of changed files for different scenarios:
+  - `comparison_type: "working"` - Uncommitted changes (same as get_git_status but structured)
+  - `comparison_type: "branch"` - Files changed between branches (requires `base_branch`, optional `target_branch`)
+  - `comparison_type: "commits"` - Files changed between commits (requires `base_commit`, optional `target_commit`)
+  - `comparison_type: "last_commit"` - Files changed in last commit (HEAD~1..HEAD)
+  - Optional `include_status` (boolean) - Include file status (A/M/D)
+
+**Detail Queries (Per-File Diff)**:
+- `get_file_diff(file_path, ...)` - Get detailed diff for a file with multiple comparison modes:
+  - Branch comparison: `get_file_diff(file_path, base_branch="main")` - Compare file against a branch
+  - Uncommitted changes: `get_file_diff(file_path, compare_working=true)` - Compare working directory vs HEAD
+  - Commit comparison: `get_file_diff(file_path, base_commit="abc123", target_commit="def456")` - Compare between commits
+  - Last commit: `get_file_diff(file_path, base_commit="HEAD~1", target_commit="HEAD")` - Compare last commit
+  - Working directory (alternative): `get_file_diff(file_path, base_branch="HEAD")` - Compare working directory vs HEAD
+
+**Metadata Queries**:
 - `get_commit_history(file_path, limit)` - Get commit history for a file
 
 ### 4. mcp-code-edit

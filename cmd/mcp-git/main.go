@@ -100,7 +100,7 @@ func handleToolsList(msg *MCPMessage, encoder *json.Encoder) {
 							"properties": map[string]interface{}{
 								"type": map[string]interface{}{
 									"type":        "string",
-									"description": "Operation type: get_git_status, get_file_diff, get_commit_history",
+									"description": "Operation type: get_git_status, get_file_diff, get_commit_history, get_changed_files",
 								},
 							},
 						},
@@ -203,6 +203,8 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 			result, err = toolGetFileDiff(opArgs)
 		case "get_commit_history":
 			result, err = toolGetCommitHistory(opArgs)
+		case "get_changed_files":
+			result, err = toolGetChangedFiles(opArgs)
 		default:
 			err = fmt.Errorf("unknown operation type: %s", opType)
 		}
@@ -280,15 +282,35 @@ func toolGetFileDiff(args map[string]interface{}) (string, error) {
 		return "", fmt.Errorf("REPO_PATH not set")
 	}
 
-	baseBranch := "main"
-	if bb, ok := args["base_branch"].(string); ok && bb != "" {
-		baseBranch = bb
-	}
-
 	fullPath := resolvePath(filePath)
 	relPath, _ := filepath.Rel(repoPath, fullPath)
 
-	cmd := exec.Command("git", "diff", baseBranch, "--", relPath)
+	var cmd *exec.Cmd
+
+	// Priority 1: Check if compare_working is true (uncommitted changes)
+	if compareWorking, ok := args["compare_working"].(bool); ok && compareWorking {
+		cmd = exec.Command("git", "diff", "HEAD", "--", relPath)
+	} else if baseCommit, ok := args["base_commit"].(string); ok && baseCommit != "" {
+		// Priority 2: Commit comparison (base_commit and optionally target_commit)
+		targetCommit := "HEAD"
+		if tc, ok := args["target_commit"].(string); ok && tc != "" {
+			targetCommit = tc
+		}
+		cmd = exec.Command("git", "diff", baseCommit, targetCommit, "--", relPath)
+	} else {
+		// Priority 3: Branch comparison (current behavior)
+		baseBranch := "main"
+		if bb, ok := args["base_branch"].(string); ok && bb != "" {
+			baseBranch = bb
+		}
+		// If base_branch is "HEAD" or empty, compare working directory
+		if baseBranch == "HEAD" || baseBranch == "" {
+			cmd = exec.Command("git", "diff", "HEAD", "--", relPath)
+		} else {
+			cmd = exec.Command("git", "diff", baseBranch, "--", relPath)
+		}
+	}
+
 	cmd.Dir = repoPath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -350,6 +372,173 @@ func toolGetCommitHistory(args map[string]interface{}) (string, error) {
 	jsonResult, err := json.Marshal(result)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal commit history: %w", err)
+	}
+	return string(jsonResult), nil
+}
+
+func toolGetChangedFiles(args map[string]interface{}) (string, error) {
+	repoPath := os.Getenv("REPO_PATH")
+	if repoPath == "" {
+		return "", fmt.Errorf("REPO_PATH not set")
+	}
+
+	comparisonType, ok := args["comparison_type"].(string)
+	if !ok {
+		return "", fmt.Errorf("comparison_type is required (branch, commits, working, last_commit)")
+	}
+
+	includeStatus := true
+	if is, ok := args["include_status"].(bool); ok {
+		includeStatus = is
+	}
+
+	var cmd *exec.Cmd
+
+	switch comparisonType {
+	case "working":
+		// Use git status for uncommitted changes
+		cmd = exec.Command("git", "status", "--porcelain")
+		cmd.Dir = repoPath
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("failed to get git status: %w\nOutput: %s", err, string(output))
+		}
+
+		// Parse porcelain output
+		var result []map[string]interface{}
+		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+		for _, line := range lines {
+			if line == "" {
+				continue
+			}
+			// Porcelain format: XY filename
+			// X = staged status, Y = unstaged status
+			// M = modified, A = added, D = deleted, etc.
+			if len(line) >= 3 {
+				status := string(line[0])
+				if status == " " {
+					status = string(line[1])
+				}
+				filePath := strings.TrimSpace(line[2:])
+				entry := map[string]interface{}{
+					"file_path": filePath,
+				}
+				if includeStatus {
+					entry["status"] = status
+				}
+				result = append(result, entry)
+			}
+		}
+
+		jsonResult, err := json.Marshal(result)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal changed files: %w", err)
+		}
+		return string(jsonResult), nil
+
+	case "branch":
+		baseBranch, ok := args["base_branch"].(string)
+		if !ok || baseBranch == "" {
+			return "", fmt.Errorf("base_branch is required for branch comparison")
+		}
+
+		targetBranch := ""
+		if tb, ok := args["target_branch"].(string); ok && tb != "" {
+			targetBranch = tb
+		} else {
+			// Get current branch
+			cmd = exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+			cmd.Dir = repoPath
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				return "", fmt.Errorf("failed to get current branch: %w\nOutput: %s", err, string(output))
+			}
+			targetBranch = strings.TrimSpace(string(output))
+		}
+
+		if includeStatus {
+			cmd = exec.Command("git", "diff", "--name-status", fmt.Sprintf("%s..%s", baseBranch, targetBranch))
+		} else {
+			cmd = exec.Command("git", "diff", "--name-only", fmt.Sprintf("%s..%s", baseBranch, targetBranch))
+		}
+		cmd.Dir = repoPath
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("failed to get branch diff: %w\nOutput: %s", err, string(output))
+		}
+
+		return parseDiffNameOutput(string(output), includeStatus)
+
+	case "commits":
+		baseCommit, ok := args["base_commit"].(string)
+		if !ok || baseCommit == "" {
+			return "", fmt.Errorf("base_commit is required for commit comparison")
+		}
+
+		targetCommit := "HEAD"
+		if tc, ok := args["target_commit"].(string); ok && tc != "" {
+			targetCommit = tc
+		}
+
+		if includeStatus {
+			cmd = exec.Command("git", "diff", "--name-status", baseCommit, targetCommit)
+		} else {
+			cmd = exec.Command("git", "diff", "--name-only", baseCommit, targetCommit)
+		}
+		cmd.Dir = repoPath
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("failed to get commit diff: %w\nOutput: %s", err, string(output))
+		}
+
+		return parseDiffNameOutput(string(output), includeStatus)
+
+	case "last_commit":
+		if includeStatus {
+			cmd = exec.Command("git", "diff", "--name-status", "HEAD~1", "HEAD")
+		} else {
+			cmd = exec.Command("git", "diff", "--name-only", "HEAD~1", "HEAD")
+		}
+		cmd.Dir = repoPath
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("failed to get last commit diff: %w\nOutput: %s", err, string(output))
+		}
+
+		return parseDiffNameOutput(string(output), includeStatus)
+
+	default:
+		return "", fmt.Errorf("invalid comparison_type: %s (must be: branch, commits, working, last_commit)", comparisonType)
+	}
+}
+
+func parseDiffNameOutput(output string, includeStatus bool) (string, error) {
+	var result []map[string]interface{}
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+
+		entry := make(map[string]interface{})
+		if includeStatus {
+			// Format: STATUS\tfile_path
+			parts := strings.SplitN(line, "\t", 2)
+			if len(parts) == 2 {
+				entry["status"] = parts[0]
+				entry["file_path"] = parts[1]
+			} else {
+				entry["file_path"] = line
+			}
+		} else {
+			entry["file_path"] = line
+		}
+		result = append(result, entry)
+	}
+
+	jsonResult, err := json.Marshal(result)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal changed files: %w", err)
 	}
 	return string(jsonResult), nil
 }
