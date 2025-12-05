@@ -97,10 +97,10 @@ func handleToolsList(msg *MCPMessage, encoder *json.Encoder) {
 				"type": "object",
 				"properties": map[string]interface{}{
 					"operations": map[string]interface{}{
-						"type": "array",
+						"type":        "array",
 						"description": "List of operations to execute",
 						"items": map[string]interface{}{
-							"type": "object",
+							"type":        "object",
 							"description": "Operation object with 'type' field and operation-specific parameters",
 							"properties": map[string]interface{}{
 								"type": map[string]interface{}{
@@ -168,10 +168,10 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 		opMap, ok := op.(map[string]interface{})
 		if !ok {
 			results = append(results, map[string]interface{}{
-				"index": i,
-				"type":  "unknown",
+				"index":   i,
+				"type":    "unknown",
 				"success": false,
-				"error":  "Invalid operation format",
+				"error":   "Invalid operation format",
 			})
 			errorCount++
 			continue
@@ -180,10 +180,10 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 		opType, ok := opMap["type"].(string)
 		if !ok {
 			results = append(results, map[string]interface{}{
-				"index": i,
-				"type":  "unknown",
+				"index":   i,
+				"type":    "unknown",
 				"success": false,
-				"error":  "Operation type is required",
+				"error":   "Operation type is required",
 			})
 			errorCount++
 			continue
@@ -218,11 +218,11 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 
 		if err != nil {
 			results = append(results, map[string]interface{}{
-				"index": i,
-				"type":  opType,
+				"index":   i,
+				"type":    opType,
 				"success": false,
-				"error":  err.Error(),
-				"result": nil,
+				"error":   err.Error(),
+				"result":  nil,
 			})
 			errorCount++
 		} else {
@@ -236,11 +236,11 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 			}
 
 			results = append(results, map[string]interface{}{
-				"index": i,
-				"type":  opType,
+				"index":   i,
+				"type":    opType,
 				"success": true,
-				"result": parsedResult,
-				"error":  nil,
+				"result":  parsedResult,
+				"error":   nil,
 			})
 			successCount++
 		}
@@ -285,12 +285,12 @@ func toolListDirectory(args map[string]interface{}) (string, error) {
 	}
 
 	fullPath := resolvePath(path)
-	
+
 	// Check if path exists first
 	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
 		return "", fmt.Errorf("directory does not exist: %s", path)
 	}
-	
+
 	entries, err := os.ReadDir(fullPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to list directory '%s': %w", path, err)
@@ -314,9 +314,10 @@ func shouldSkipDir(dirName string) bool {
 }
 
 func toolGetFileTree(args map[string]interface{}) (string, error) {
-	rootPath, ok := args["root_path"].(string)
-	if !ok {
-		return "", fmt.Errorf("root_path is required")
+	// root_path is optional, default to "." (repo root)
+	rootPath := "."
+	if rp, ok := args["root_path"].(string); ok && rp != "" {
+		rootPath = rp
 	}
 
 	maxDepth := 10
@@ -387,12 +388,12 @@ func toolFileExists(args map[string]interface{}) (string, error) {
 
 	fullPath := resolvePath(path)
 	info, err := os.Stat(fullPath)
-	
+
 	result := map[string]interface{}{
-		"path":    path,
-		"exists":  err == nil,
+		"path":   path,
+		"exists": err == nil,
 	}
-	
+
 	if err == nil {
 		result["is_file"] = !info.IsDir()
 		result["is_directory"] = info.IsDir()
@@ -418,7 +419,7 @@ func toolCreateDirectory(args map[string]interface{}) (string, error) {
 	}
 
 	fullPath := resolvePath(path)
-	
+
 	// Check if it already exists
 	if info, err := os.Stat(fullPath); err == nil {
 		if info.IsDir() {
@@ -433,7 +434,7 @@ func toolCreateDirectory(args map[string]interface{}) (string, error) {
 		}
 		return "", fmt.Errorf("path exists but is not a directory: %s", path)
 	}
-	
+
 	// Create directory recursively
 	if err := os.MkdirAll(fullPath, 0755); err != nil {
 		return "", fmt.Errorf("failed to create directory '%s': %w", path, err)
@@ -526,4 +527,3 @@ type Content struct {
 	Type string `json:"type"`
 	Text string `json:"text,omitempty"`
 }
-
