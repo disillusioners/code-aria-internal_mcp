@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"apply_operations","arguments":{"operations":[{"type":"get_all_working_changes"}]}}}
+{"jsonrpc":"2.0","method":"notify","params":{"method":"tools/initialized"}}

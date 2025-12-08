@@ -542,3 +542,142 @@ func parseDiffNameOutput(output string, includeStatus bool) (string, error) {
 	}
 	return string(jsonResult), nil
 }
+
+// toolGetAllWorkingChanges returns all working directory changes with diffs
+func toolGetAllWorkingChanges(args map[string]interface{}) (string, error) {
+	repoPath := os.Getenv("REPO_PATH")
+	if repoPath == "" {
+		return "", fmt.Errorf("REPO_PATH not set")
+	}
+
+	// Parse optional parameters
+	includeStatus := true
+	if is, ok := args["include_status"].(bool); ok {
+		includeStatus = is
+	}
+
+	format := "unified"
+	if f, ok := args["format"].(string); ok {
+		format = f
+	}
+
+	var filePatterns []string
+	if patterns, ok := args["file_patterns"].([]interface{}); ok {
+		filePatterns = make([]string, len(patterns))
+		for i, p := range patterns {
+			if pattern, ok := p.(string); ok {
+				filePatterns[i] = pattern
+			}
+		}
+	}
+
+	// Get changed files
+	changedFilesJSON, err := getChangedFilesWorking(repoPath, includeStatus)
+	if err != nil {
+		return "", fmt.Errorf("failed to get changed files: %w", err)
+	}
+
+	var changedFiles []map[string]interface{}
+	if err := json.Unmarshal([]byte(changedFilesJSON), &changedFiles); err != nil {
+		return "", fmt.Errorf("failed to parse changed files: %w", err)
+	}
+
+	// Filter by file patterns if provided
+	var filteredFiles []map[string]interface{}
+	for _, file := range changedFiles {
+		filePath := file["file_path"].(string)
+
+		// Check if file matches any pattern
+		if len(filePatterns) == 0 {
+			filteredFiles = append(filteredFiles, file)
+			continue
+		}
+
+		matched := false
+		for _, pattern := range filePatterns {
+			if matched, _ := filepath.Match(pattern, filepath.Base(filePath)); matched {
+				matched = true
+				break
+			}
+			// Also support path patterns
+			if matched, _ := filepath.Match(pattern, filePath); matched {
+				matched = true
+				break
+			}
+		}
+
+		if matched {
+			filteredFiles = append(filteredFiles, file)
+		}
+	}
+
+	// Generate diffs for each file if format is "unified"
+	var resultFiles []map[string]interface{}
+	summary := map[string]interface{}{
+		"total_files": 0,
+		"modified":    0,
+		"added":       0,
+		"deleted":     0,
+	}
+
+	for _, file := range filteredFiles {
+		filePath := file["file_path"].(string)
+		status := ""
+		if includeStatus {
+			if s, ok := file["status"].(string); ok {
+				status = s
+			}
+		}
+
+		fileResult := map[string]interface{}{
+			"file_path": filePath,
+		}
+
+		if includeStatus {
+			fileResult["status"] = status
+		}
+
+		// Generate diff if format is "unified"
+		if format == "unified" {
+			diff, err := getWorkingDirDiff(repoPath, filePath)
+			if err != nil {
+				fileResult["diff"] = fmt.Sprintf("Error generating diff: %s", err.Error())
+			} else {
+				fileResult["diff"] = diff
+			}
+		}
+
+		resultFiles = append(resultFiles, fileResult)
+
+		// Update summary
+		totalFiles := summary["total_files"].(int)
+		summary["total_files"] = totalFiles + 1
+		switch status {
+		case "M":
+			modified := summary["modified"].(int)
+			summary["modified"] = modified + 1
+		case "A":
+			added := summary["added"].(int)
+			summary["added"] = added + 1
+		case "D":
+			deleted := summary["deleted"].(int)
+			summary["deleted"] = deleted + 1
+		case "?":
+			added := summary["added"].(int)
+			summary["added"] = added + 1
+		}
+	}
+
+	// Build final result
+	finalResult := map[string]interface{}{
+		"changed_files": resultFiles,
+		"summary":       summary,
+	}
+
+	resultJSON, err := json.Marshal(finalResult)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal result: %w", err)
+	}
+
+	return string(resultJSON), nil
+}
