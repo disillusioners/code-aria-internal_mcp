@@ -561,6 +561,12 @@ func toolGetAllWorkingChanges(args map[string]interface{}) (string, error) {
 		format = f
 	}
 
+	// Token limit to prevent excessive output
+	maxTokens := 50000
+	if mt, ok := args["max_tokens"].(float64); ok {
+		maxTokens = int(mt)
+	}
+
 	var filePatterns []string
 	if patterns, ok := args["file_patterns"].([]interface{}); ok {
 		filePatterns = make([]string, len(patterns))
@@ -580,6 +586,11 @@ func toolGetAllWorkingChanges(args map[string]interface{}) (string, error) {
 	var changedFiles []map[string]interface{}
 	if err := json.Unmarshal([]byte(changedFilesJSON), &changedFiles); err != nil {
 		return "", fmt.Errorf("failed to parse changed files: %w", err)
+	}
+
+	// Check token limit before processing
+	if len(changedFiles) > 100 {
+		return "", fmt.Errorf("too many changed files (%d). Maximum allowed is 100 files. Please use file_patterns to filter or use get_changed_files with specific patterns", len(changedFiles))
 	}
 
 	// Filter by file patterns if provided
@@ -620,6 +631,7 @@ func toolGetAllWorkingChanges(args map[string]interface{}) (string, error) {
 		"deleted":     0,
 	}
 
+	estimatedTokens := 1000 // Base tokens for JSON structure
 	for _, file := range filteredFiles {
 		filePath := file["file_path"].(string)
 		status := ""
@@ -642,8 +654,10 @@ func toolGetAllWorkingChanges(args map[string]interface{}) (string, error) {
 			diff, err := getWorkingDirDiff(repoPath, filePath)
 			if err != nil {
 				fileResult["diff"] = fmt.Sprintf("Error generating diff: %s", err.Error())
+				estimatedTokens += 200 // Error message tokens
 			} else {
 				fileResult["diff"] = diff
+				estimatedTokens += len(diff) // Rough token estimation
 			}
 		}
 
@@ -668,10 +682,19 @@ func toolGetAllWorkingChanges(args map[string]interface{}) (string, error) {
 		}
 	}
 
+	// Check if we exceed token limit
+	if estimatedTokens > maxTokens {
+		return "", fmt.Errorf("output would exceed token limit (%d tokens). Maximum allowed is %d tokens. Please use file_patterns to reduce scope, use format='summary' instead of 'unified', or process files in smaller batches", estimatedTokens, maxTokens)
+	}
+
 	// Build final result
 	finalResult := map[string]interface{}{
 		"changed_files": resultFiles,
 		"summary":       summary,
+		"token_usage": map[string]interface{}{
+			"estimated_tokens": estimatedTokens,
+			"max_tokens":       maxTokens,
+		},
 	}
 
 	resultJSON, err := json.Marshal(finalResult)

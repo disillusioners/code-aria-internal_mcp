@@ -20,6 +20,7 @@ The `get_all_working_changes` tool provides a comprehensive view of all working 
 | `file_patterns` | array of strings | No | Filter files by patterns like `["*.go", "*.py"]` |
 | `include_status` | boolean | No | true | Include git status in output |
 | `format` | string | No | "unified" | Output format: "unified" or "summary" |
+| `max_tokens` | integer | No | 50000 | Maximum tokens allowed (default: 50000) |
 
 ### **Response Structure**
 
@@ -85,6 +86,20 @@ Get only file list and summary without diffs:
 }
 ```
 
+### **With Token Limit**
+Limit to 1000 tokens to prevent excessive output:
+
+```json
+{
+  "operations": [
+    {
+      "type": "get_all_working_changes",
+      "max_tokens": 1000
+    }
+  ]
+}
+```
+
 ### **Without Status**
 Exclude git status from output:
 
@@ -96,6 +111,23 @@ Exclude git status from output:
       "include_status": false
     }
   ]
+}
+```
+
+### **Error Handling Examples**
+The tool provides helpful error messages for common issues:
+
+**Too many files:**
+```json
+{
+  "error": "too many changed files (150). Maximum allowed is 100 files. Please use file_patterns to filter or process files in smaller batches."
+}
+```
+
+**Token limit exceeded:**
+```json
+{
+  "error": "output would exceed token limit (75000 tokens). Maximum allowed is 50000 tokens. Please use file_patterns to reduce scope, use format='summary' instead of 'unified', or process files in smaller batches."
 }
 ```
 
