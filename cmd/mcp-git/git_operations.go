@@ -285,8 +285,8 @@ func getChangedFilesWorking(repoPath string, includeStatus bool) (string, error)
 
 	var result []map[string]interface{}
 	for file, s := range status {
-		// Only include files with worktree changes (unstaged)
-		if s.Worktree == ' ' {
+		// Include files with either staged or unstaged changes
+		if s.Worktree == ' ' && s.Staging == ' ' {
 			continue
 		}
 
@@ -295,8 +295,12 @@ func getChangedFilesWorking(repoPath string, includeStatus bool) (string, error)
 		}
 
 		if includeStatus {
-			// Map worktree status to git status format
-			statusStr := getStatusString(s.Worktree)
+			// Prefer staged status if present, otherwise use worktree status
+			statusCode := s.Worktree
+			if s.Staging != ' ' {
+				statusCode = s.Staging
+			}
+			statusStr := getStatusString(statusCode)
 			entry["status"] = statusStr
 		}
 
