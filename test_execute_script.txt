@@ -1,0 +1,5 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test-client","version":"1.0.0"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"apply_operations","arguments":{"operations":[{"type":"execute_script","script":"echo 'Hello from script'\nwhoami\nhostname"}]}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"apply_operations","arguments":{"operations":[{"type":"execute_script","script":"#!/bin/bash\necho 'Multi-line script'\necho 'Line 2'\necho 'Line 3'","script_name":"test_script"}]}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"apply_operations","arguments":{"operations":[{"type":"execute_script","script":"VAR1='test'\necho $VAR1\nVAR2='hello'\necho $VAR2"}]}}}

@@ -7,13 +7,14 @@ build-mcp-servers:
 	@go build -o mcp-codebase ./cmd/mcp-codebase
 	@go build -o mcp-git ./cmd/mcp-git
 	@go build -o mcp-code-edit ./cmd/mcp-code-edit
+	@go build -o mcp-bash ./cmd/mcp-bash
 	@echo "MCP servers built successfully:"
-	@ls -lh mcp-filesystem mcp-codebase mcp-git mcp-code-edit 2>/dev/null || true
+	@ls -lh mcp-filesystem mcp-codebase mcp-git mcp-code-edit mcp-bash 2>/dev/null || true
 
 # Install MCP server executables to PATH location
 install-mcp-servers: build-mcp-servers
 	@echo "Installing MCP servers..."
-	@if [ ! -f mcp-filesystem ] || [ ! -f mcp-codebase ] || [ ! -f mcp-git ] || [ ! -f mcp-code-edit ]; then \
+	@if [ ! -f mcp-filesystem ] || [ ! -f mcp-codebase ] || [ ! -f mcp-git ] || [ ! -f mcp-code-edit ] || [ ! -f mcp-bash ]; then \
 		echo "Error: MCP servers not built. Run 'make build-mcp-servers' first."; \
 		exit 1; \
 	fi
@@ -30,8 +31,8 @@ install-mcp-servers: build-mcp-servers
 		exit 1; \
 	fi; \
 	echo "Installing to $$INSTALL_DIR"; \
-	cp mcp-filesystem mcp-codebase mcp-git mcp-code-edit "$$INSTALL_DIR/"; \
-	chmod +x "$$INSTALL_DIR/mcp-filesystem" "$$INSTALL_DIR/mcp-codebase" "$$INSTALL_DIR/mcp-git" "$$INSTALL_DIR/mcp-code-edit"; \
+	cp mcp-filesystem mcp-codebase mcp-git mcp-code-edit mcp-bash "$$INSTALL_DIR/"; \
+	chmod +x "$$INSTALL_DIR/mcp-filesystem" "$$INSTALL_DIR/mcp-codebase" "$$INSTALL_DIR/mcp-git" "$$INSTALL_DIR/mcp-code-edit" "$$INSTALL_DIR/mcp-bash"; \
 	echo "MCP servers installed successfully to $$INSTALL_DIR"; \
 	if ! echo "$$PATH" | grep -q "$$INSTALL_DIR"; then \
 		echo ""; \
@@ -43,7 +44,7 @@ install-mcp-servers: build-mcp-servers
 # Clean MCP server build artifacts
 clean-mcp-servers:
 	@echo "Cleaning MCP server executables..."
-	@rm -f mcp-filesystem mcp-codebase mcp-git mcp-code-edit
+	@rm -f mcp-filesystem mcp-codebase mcp-git mcp-code-edit mcp-bash
 	@echo "MCP server cleanup complete"
 
 # Convenience target: build and install MCP servers

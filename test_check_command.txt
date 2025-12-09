@@ -1,0 +1,7 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test-client","version":"1.0.0"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"apply_operations","arguments":{"operations":[{"type":"check_command_exists","command":"whoami"}]}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"apply_operations","arguments":{"operations":[{"type":"check_command_exists","command":"git"}]}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"apply_operations","arguments":{"operations":[{"type":"check_command_exists","command":"nonexistentcommand123"}]}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"apply_operations","arguments":{"operations":[{"type":"check_command_exists","command":"node","search_paths":["C:\\Program Files\\nodejs", "C:\\Program Files\\Git\\bin"]}]}}}
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"apply_operations","arguments":{"operations":[{"type":"check_command_exists","command":"bash"}]}}}

@@ -1,6 +1,6 @@
 # Code-Aria Internal MCP Servers
 
-This project contains a set of Model Context Protocol (MCP) servers that are used to interact with codebases. These servers provide tools for file system operations, code analysis, git operations, and code editing.
+This project contains a set of Model Context Protocol (MCP) servers that are used to interact with codebases. These servers provide tools for file system operations, code analysis, git operations, code editing, and secure bash command execution.
 
 ## Overview
 
@@ -59,10 +59,26 @@ Provides code modification tools:
 - `rename_file(old_path, new_path)` - Rename or move a file (also accepts `move_file` as alias)
 - `copy_file(source_path, destination_path)` - Copy a file to a new location
 
+### 5. mcp-bash
+
+Provides secure bash command execution with comprehensive security measures:
+- `execute_command(command, timeout, working_directory, allow_shell_access, environment_vars)` - Execute a single bash command with security restrictions
+- `execute_script(script, timeout, working_directory, allow_shell_access, environment_vars, script_name)` - Execute multi-line bash scripts with enhanced security controls
+- `check_command_exists(command, search_paths)` - Check if a command is available in the system PATH
+
+**Security Features:**
+- Command validation with allow/block lists
+- Input sanitization and UTF-8 validation
+- Working directory restrictions
+- Environment variable filtering
+- Comprehensive audit logging
+- Timeout management and resource limits
+
 ## Prerequisites
 
 - Go 1.24.1 or higher
 - Git (for mcp-git server)
+- Bash (for mcp-bash server)
 
 ## Installation
 
@@ -75,7 +91,7 @@ make mcp-servers
 ```
 
 This command will:
-1. Build all 4 MCP server executables (`mcp-filesystem`, `mcp-codebase`, `mcp-git`, `mcp-code-edit`)
+1. Build all 5 MCP server executables (`mcp-filesystem`, `mcp-codebase`, `mcp-git`, `mcp-code-edit`, `mcp-bash`)
 2. Automatically detect the best installation directory (`~/bin`, `~/.local/bin`, or `/usr/local/bin`)
 3. Copy executables to the installation directory
 4. Set executable permissions
@@ -90,7 +106,7 @@ The Makefile provides several targets for managing MCP servers:
 - Convenience target that combines build and install
 
 **`make build-mcp-servers`** - Build only
-- Compiles all 4 MCP server executables
+- Compiles all 5 MCP server executables
 - Outputs executables to the project root directory
 - Does not install them
 
@@ -112,6 +128,7 @@ go build -o mcp-filesystem ./cmd/mcp-filesystem
 go build -o mcp-codebase ./cmd/mcp-codebase
 go build -o mcp-git ./cmd/mcp-git
 go build -o mcp-code-edit ./cmd/mcp-code-edit
+go build -o mcp-bash ./cmd/mcp-bash
 ```
 
 ### Installation Directory Selection
