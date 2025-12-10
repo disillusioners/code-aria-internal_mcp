@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -87,7 +87,7 @@ func toolGetSystemInfo(args map[string]interface{}) (string, error) {
 	}
 
 	// Audit logging
-	auditLog("get_system_info", "", "", environmentInfo.WorkingDir, nil, nil, nil, 0, true, 0, "")
+	auditLog("get_system_info", "", environmentInfo.WorkingDir, "", nil, nil, 0, true, 0, "")
 
 	// Return JSON result
 	resultJSON, err := json.Marshal(systemInfo)
@@ -105,7 +105,7 @@ func toolGetOSInfo(args map[string]interface{}) (string, error) {
 	}
 
 	// Audit logging
-	auditLog("get_os_info", "", "", "", nil, nil, nil, 0, true, 0, "")
+	auditLog("get_os_info", "", "", "", nil, nil, 0, true, 0, "")
 
 	// Return JSON result
 	resultJSON, err := json.Marshal(osInfo)
@@ -123,7 +123,7 @@ func toolGetHardwareInfo(args map[string]interface{}) (string, error) {
 	}
 
 	// Audit logging
-	auditLog("get_hardware_info", "", "", "", nil, nil, nil, 0, true, 0, "")
+	auditLog("get_hardware_info", "", "", "", nil, nil, 0, true, 0, "")
 
 	// Return JSON result
 	resultJSON, err := json.Marshal(hardwareInfo)
@@ -141,7 +141,7 @@ func toolGetEnvironmentInfo(args map[string]interface{}) (string, error) {
 	}
 
 	// Audit logging
-	auditLog("get_environment_info", "", "", environmentInfo.WorkingDir, nil, nil, nil, 0, true, 0, "")
+	auditLog("get_environment_info", "", environmentInfo.WorkingDir, "", nil, nil, 0, true, 0, "")
 
 	// Return JSON result
 	resultJSON, err := json.Marshal(environmentInfo)
@@ -159,7 +159,7 @@ func toolGetShellInfo(args map[string]interface{}) (string, error) {
 	}
 
 	// Audit logging
-	auditLog("get_shell_info", "", "", "", nil, nil, nil, 0, true, 0, "")
+	auditLog("get_shell_info", "", "", "", nil, nil, 0, true, 0, "")
 
 	// Return JSON result
 	resultJSON, err := json.Marshal(shellInfo)
@@ -177,7 +177,7 @@ func toolGetDevelopmentTools(args map[string]interface{}) (string, error) {
 	}
 
 	// Audit logging
-	auditLog("get_development_tools", "", "", "", nil, nil, nil, 0, true, 0, "")
+	auditLog("get_development_tools", "", "", "", nil, nil, 0, true, 0, "")
 
 	// Return JSON result
 	resultJSON, err := json.Marshal(devToolsInfo)
@@ -195,7 +195,7 @@ func toolGetNetworkInfo(args map[string]interface{}) (string, error) {
 	}
 
 	// Audit logging
-	auditLog("get_network_info", "", "", "", nil, nil, nil, 0, true, 0, "")
+	auditLog("get_network_info", "", "", "", nil, nil, 0, true, 0, "")
 
 	// Return JSON result
 	resultJSON, err := json.Marshal(networkInfo)
@@ -213,7 +213,7 @@ func toolDetectRepositories(args map[string]interface{}) (string, error) {
 	}
 
 	// Audit logging
-	auditLog("detect_repositories", "", "", "", nil, nil, nil, 0, true, 0, "")
+	auditLog("detect_repositories", "", "", "", nil, nil, 0, true, 0, "")
 
 	// Return JSON result
 	resultJSON, err := json.Marshal(reposInfo)
@@ -249,7 +249,7 @@ func toolCheckCommand(args map[string]interface{}) (string, error) {
 	result := checkCommandExists(command, searchPaths)
 
 	// Audit logging (read-only operation)
-	auditLog("check_command", command, "", "", nil, nil, nil, 0, result.Exists, 0, "")
+	auditLog("check_command", command, "", "", nil, nil, 0, result.Exists, 0, "")
 
 	// Return JSON result
 	resultJSON, err := json.Marshal(result)
@@ -268,7 +268,7 @@ func toolGetRecommendations(args map[string]interface{}) (string, error) {
 	recommendations := getSystemRecommendations(osInfo, hardwareInfo, devToolsInfo)
 
 	// Audit logging
-	auditLog("get_recommendations", "", "", "", nil, nil, nil, 0, true, 0, "")
+	auditLog("get_recommendations", "", "", "", nil, nil, 0, true, 0, "")
 
 	// Return JSON result
 	resultJSON, err := json.Marshal(map[string]interface{}{

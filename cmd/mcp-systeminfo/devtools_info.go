@@ -2,9 +2,8 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 	"time"
 )
@@ -48,9 +47,6 @@ func getToolInfo(toolName string) *ToolInfo {
 		Executable: toolName,
 		Installed:  false,
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
 
 	// Check if tool exists
 	path, err := exec.LookPath(toolName)

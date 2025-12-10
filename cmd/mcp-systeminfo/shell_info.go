@@ -142,8 +142,8 @@ func getShellVersion(shellName string) string {
 						var versionInfo map[string]interface{}
 						if err := json.Unmarshal([]byte(jsonStr), &versionInfo); err == nil {
 							if psVersion, ok := versionInfo["PSVersion"].(map[string]interface{}); ok {
-								if major, ok := psVersion["Major"].(float64); ok {
-									if minor, ok := psVersion["Minor"].(float64); ok {
+								if _, ok := psVersion["Major"].(float64); ok {
+									if _, ok := psVersion["Minor"].(float64); ok {
 										return strings.TrimSpace(output)
 									}
 								}

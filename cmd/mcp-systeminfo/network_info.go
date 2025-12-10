@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -206,9 +207,6 @@ func getProxySettings() ProxyInfo {
 // isNetworkConnected checks if network is connected
 func isNetworkConnected() bool {
 	// Simple check by trying to connect to a local address
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
 	conn, err := net.DialTimeout("tcp", "8.8.8.8:53", 2*time.Second)
 	if err != nil {
 		return false
@@ -232,9 +230,6 @@ func isNetworkConnected() bool {
 
 // hasInternetAccess checks if we have internet access
 func hasInternetAccess() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
 	// Try to connect to Google's DNS
 	conn, err := net.DialTimeout("tcp", "8.8.8.8:53", 3*time.Second)
 	if err != nil {
