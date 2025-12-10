@@ -1,6 +1,6 @@
 # Code-Aria Internal MCP Servers
 
-This project contains a set of Model Context Protocol (MCP) servers that are used to interact with codebases. These servers provide tools for file system operations, code analysis, git operations, code editing, and secure bash command execution.
+This project contains a set of Model Context Protocol (MCP) servers that are used to interact with codebases. These servers provide tools for file system operations, code analysis, git operations, code editing, secure bash command execution, and PowerShell command execution.
 
 ## Overview
 
@@ -74,11 +74,36 @@ Provides secure bash command execution with comprehensive security measures:
 - Comprehensive audit logging
 - Timeout management and resource limits
 
+### 6. mcp-powershell
+
+Provides secure PowerShell command execution designed specifically for Windows environments:
+- `execute_command(command, timeout, working_directory, allow_shell_access, environment_vars)` - Execute a single PowerShell command with security restrictions
+- `execute_script(script, timeout, working_directory, allow_shell_access, environment_vars, script_name)` - Execute multi-line PowerShell scripts with enhanced security controls
+- `check_command_exists(command, search_paths)` - Check if a PowerShell cmdlet, function, or external command is available
+
+**Windows-Specific Features:**
+- Supports both Windows PowerShell and PowerShell Core (pwsh)
+- Native support for PowerShell cmdlets (Get-ChildItem, Set-Content, etc.)
+- Handles Windows file paths and executables (.exe, .ps1, .cmd, .bat)
+- Automatic detection of PowerShell installation
+- Built-in Windows command support (dir, type, copy, move, etc.)
+
+**Security Features:**
+- PowerShell-specific command validation with allow/block lists
+- Protection against dangerous PowerShell constructs (Invoke-Expression, execution policy changes, etc.)
+- Windows-specific security pattern detection
+- Input sanitization and UTF-8 validation
+- Working directory restrictions
+- Environment variable filtering
+- Comprehensive audit logging
+- Timeout management and resource limits
+
 ## Prerequisites
 
 - Go 1.24.1 or higher
 - Git (for mcp-git server)
 - Bash (for mcp-bash server)
+- PowerShell (for mcp-powershell server) - Windows PowerShell 5.1+ or PowerShell Core 6.0+
 
 ## Installation
 
@@ -91,7 +116,7 @@ make mcp-servers
 ```
 
 This command will:
-1. Build all 5 MCP server executables (`mcp-filesystem`, `mcp-codebase`, `mcp-git`, `mcp-code-edit`, `mcp-bash`)
+1. Build all 6 MCP server executables (`mcp-filesystem`, `mcp-codebase`, `mcp-git`, `mcp-code-edit`, `mcp-bash`, `mcp-powershell`)
 2. Automatically detect the best installation directory (`~/bin`, `~/.local/bin`, or `/usr/local/bin`)
 3. Copy executables to the installation directory
 4. Set executable permissions
@@ -106,7 +131,7 @@ The Makefile provides several targets for managing MCP servers:
 - Convenience target that combines build and install
 
 **`make build-mcp-servers`** - Build only
-- Compiles all 5 MCP server executables
+- Compiles all 6 MCP server executables
 - Outputs executables to the project root directory
 - Does not install them
 
@@ -129,6 +154,7 @@ go build -o mcp-codebase ./cmd/mcp-codebase
 go build -o mcp-git ./cmd/mcp-git
 go build -o mcp-code-edit ./cmd/mcp-code-edit
 go build -o mcp-bash ./cmd/mcp-bash
+go build -o mcp-powershell ./cmd/mcp-powershell
 ```
 
 ### Installation Directory Selection
@@ -195,9 +221,26 @@ code-aria-internal_mcp/
 │   │   └── main.go
 │   ├── mcp-git/
 │   │   └── main.go
-│   └── mcp-code-edit/
-│       └── main.go
+│   ├── mcp-code-edit/
+│   │   └── main.go
+│   ├── mcp-bash/
+│   │   ├── main.go
+│   │   ├── bash_operations.go
+│   │   ├── security.go
+│   │   ├── audit.go
+│   │   ├── mcp.go
+│   │   └── types.go
+│   └── mcp-powershell/
+│       ├── main.go
+│       ├── powershell_operations.go
+│       ├── security.go
+│       ├── audit.go
+│       ├── mcp.go
+│       └── types.go
 ├── Makefile
+├── Makefile.windows
+├── Makefile.unix
+├── install-windows.ps1
 ├── go.mod
 └── README.md
 ```
