@@ -1,53 +1,8 @@
 .PHONY: build-mcp-servers install-mcp-servers clean-mcp-servers mcp-servers
 
-# Build all MCP server executables
-build-mcp-servers:
-	@echo "Building MCP servers..."
-	@go build -o mcp-filesystem ./cmd/mcp-filesystem
-	@go build -o mcp-codebase ./cmd/mcp-codebase
-	@go build -o mcp-git ./cmd/mcp-git
-	@go build -o mcp-code-edit ./cmd/mcp-code-edit
-	@go build -o mcp-bash ./cmd/mcp-bash
-	@echo "MCP servers built successfully:"
-	@ls -lh mcp-filesystem mcp-codebase mcp-git mcp-code-edit mcp-bash 2>/dev/null || true
-
-# Install MCP server executables to PATH location
-install-mcp-servers: build-mcp-servers
-	@echo "Installing MCP servers..."
-	@if [ ! -f mcp-filesystem ] || [ ! -f mcp-codebase ] || [ ! -f mcp-git ] || [ ! -f mcp-code-edit ] || [ ! -f mcp-bash ]; then \
-		echo "Error: MCP servers not built. Run 'make build-mcp-servers' first."; \
-		exit 1; \
-	fi
-	@INSTALL_DIR=""; \
-	if [ -w "$$HOME/bin" ] || mkdir -p "$$HOME/bin" 2>/dev/null; then \
-		INSTALL_DIR="$$HOME/bin"; \
-	elif [ -w "$$HOME/.local/bin" ] || mkdir -p "$$HOME/.local/bin" 2>/dev/null; then \
-		INSTALL_DIR="$$HOME/.local/bin"; \
-	elif [ -w "/usr/local/bin" ]; then \
-		INSTALL_DIR="/usr/local/bin"; \
-	else \
-		echo "Error: No writable installation directory found."; \
-		echo "Please create one of: ~/bin, ~/.local/bin, or ensure /usr/local/bin is writable."; \
-		exit 1; \
-	fi; \
-	echo "Installing to $$INSTALL_DIR"; \
-	cp mcp-filesystem mcp-codebase mcp-git mcp-code-edit mcp-bash "$$INSTALL_DIR/"; \
-	chmod +x "$$INSTALL_DIR/mcp-filesystem" "$$INSTALL_DIR/mcp-codebase" "$$INSTALL_DIR/mcp-git" "$$INSTALL_DIR/mcp-code-edit" "$$INSTALL_DIR/mcp-bash"; \
-	echo "MCP servers installed successfully to $$INSTALL_DIR"; \
-	if ! echo "$$PATH" | grep -q "$$INSTALL_DIR"; then \
-		echo ""; \
-		echo "Warning: $$INSTALL_DIR is not in your PATH."; \
-		echo "Add this to your shell profile (~/.zshrc or ~/.bashrc):"; \
-		echo "  export PATH=\"$$INSTALL_DIR:\$$PATH\""; \
-	fi
-
-# Clean MCP server build artifacts
-clean-mcp-servers:
-	@echo "Cleaning MCP server executables..."
-	@rm -f mcp-filesystem mcp-codebase mcp-git mcp-code-edit mcp-bash
-	@echo "MCP server cleanup complete"
-
-# Convenience target: build and install MCP servers
-mcp-servers: install-mcp-servers
-	@echo "MCP servers ready!"
-
+# Detect operating system and include the appropriate Makefile
+ifeq ($(OS),Windows_NT)
+    include Makefile.windows
+else
+    include Makefile.unix
+endif
