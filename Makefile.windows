@@ -9,6 +9,7 @@ build-mcp-servers:
 	go build -o mcp-code-edit.exe ./cmd/mcp-code-edit
 	go build -o mcp-bash.exe ./cmd/mcp-bash
 	go build -o mcp-powershell.exe ./cmd/mcp-powershell
+	go build -o mcp-systeminfo.exe ./cmd/mcp-systeminfo
 	@echo "MCP servers built successfully:"
 	@if exist mcp-filesystem.exe echo "mcp-filesystem.exe"
 	@if exist mcp-codebase.exe echo "mcp-codebase.exe"
@@ -16,6 +17,7 @@ build-mcp-servers:
 	@if exist mcp-code-edit.exe echo "mcp-code-edit.exe"
 	@if exist mcp-bash.exe echo "mcp-bash.exe"
 	@if exist mcp-powershell.exe echo "mcp-powershell.exe"
+	@if exist mcp-systeminfo.exe echo "mcp-systeminfo.exe"
 
 # Install MCP server executables to PATH location
 install-mcp-servers: build-mcp-servers
@@ -25,7 +27,7 @@ install-mcp-servers: build-mcp-servers
 # Clean MCP server build artifacts
 clean-mcp-servers:
 	@echo "Cleaning MCP server executables..."
-	@del /f /q mcp-filesystem.exe mcp-codebase.exe mcp-git.exe mcp-code-edit.exe mcp-bash.exe mcp-powershell.exe 2>nul
+	@del /f /q mcp-filesystem.exe mcp-codebase.exe mcp-git.exe mcp-code-edit.exe mcp-bash.exe mcp-powershell.exe mcp-systeminfo.exe 2>nul
 	@echo "MCP server cleanup complete"
 
 # Convenience target: build and install MCP servers

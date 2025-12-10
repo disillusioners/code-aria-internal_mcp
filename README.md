@@ -1,6 +1,6 @@
 # Code-Aria Internal MCP Servers
 
-This project contains a set of Model Context Protocol (MCP) servers that are used to interact with codebases. These servers provide tools for file system operations, code analysis, git operations, code editing, secure bash command execution, and PowerShell command execution.
+This project contains a set of Model Context Protocol (MCP) servers that are used to interact with codebases. These servers provide tools for file system operations, code analysis, git operations, code editing, secure bash command execution, PowerShell command execution, and comprehensive system information gathering.
 
 ## Overview
 
@@ -98,6 +98,42 @@ Provides secure PowerShell command execution designed specifically for Windows e
 - Comprehensive audit logging
 - Timeout management and resource limits
 
+### 7. mcp-systeminfo
+
+Provides comprehensive system information gathering to help LLMs understand the operating environment:
+- `get_system_info()` - Complete system overview (OS, hardware, environment, tools, network, repositories)
+- `get_os_info()` - Operating system details (name, version, architecture, distribution)
+- `get_hardware_info()` - Hardware information (CPU, memory, storage, displays, network cards)
+- `get_environment_info()` - Environment variables and paths (filtered for security)
+- `get_shell_info()` - Shell information and capabilities
+- `get_development_tools()` - Development tools detection and versions
+- `get_network_info()` - Network configuration and connectivity status
+- `detect_repositories()` - Version control repository detection
+- `check_command(command)` - Check if a command is available and its version
+- `get_recommendations()` - System-specific recommendations for development
+
+**Cross-Platform Support:**
+- **Windows**: Full support with PowerShell and Windows-specific commands
+- **Linux**: Comprehensive support with /proc filesystem and standard Unix tools
+- **macOS**: Native support with system commands and platform-specific features
+
+**Key Features:**
+- **OS Detection**: Detailed operating system information including distribution and version
+- **Hardware Analysis**: CPU, memory, storage, and network interface information
+- **Development Tools**: Automatic detection of compilers, interpreters, package managers, and build tools
+- **Repository Detection**: Identifies Git, SVN, and Mercurial repositories with status
+- **Network Analysis**: IP addresses, DNS, proxy settings, and connectivity checks
+- **Environment Inspection**: Secure environment variable analysis (sensitive data filtered)
+- **Smart Recommendations**: Context-aware recommendations based on system configuration
+- **Security-First**: Read-only operations with comprehensive input validation and audit logging
+
+**Use Cases:**
+- **Environment Context**: Help LLMs understand the development environment before generating code
+- **Tool Selection**: Automatically detect available tools and choose appropriate commands
+- **Cross-Platform Compatibility**: Generate commands that work on the target OS
+- **Resource Planning**: Understand system resources for task planning
+- **Repository Awareness**: Detect existing code repositories for context-aware assistance
+
 ## Prerequisites
 
 - Go 1.24.1 or higher
@@ -116,7 +152,7 @@ make mcp-servers
 ```
 
 This command will:
-1. Build all 6 MCP server executables (`mcp-filesystem`, `mcp-codebase`, `mcp-git`, `mcp-code-edit`, `mcp-bash`, `mcp-powershell`)
+1. Build all 7 MCP server executables (`mcp-filesystem`, `mcp-codebase`, `mcp-git`, `mcp-code-edit`, `mcp-bash`, `mcp-powershell`, `mcp-systeminfo`)
 2. Automatically detect the best installation directory (`~/bin`, `~/.local/bin`, or `/usr/local/bin`)
 3. Copy executables to the installation directory
 4. Set executable permissions
@@ -131,7 +167,7 @@ The Makefile provides several targets for managing MCP servers:
 - Convenience target that combines build and install
 
 **`make build-mcp-servers`** - Build only
-- Compiles all 6 MCP server executables
+- Compiles all 7 MCP server executables
 - Outputs executables to the project root directory
 - Does not install them
 
@@ -155,6 +191,7 @@ go build -o mcp-git ./cmd/mcp-git
 go build -o mcp-code-edit ./cmd/mcp-code-edit
 go build -o mcp-bash ./cmd/mcp-bash
 go build -o mcp-powershell ./cmd/mcp-powershell
+go build -o mcp-systeminfo ./cmd/mcp-systeminfo
 ```
 
 ### Installation Directory Selection
@@ -230,9 +267,20 @@ code-aria-internal_mcp/
 │   │   ├── audit.go
 │   │   ├── mcp.go
 │   │   └── types.go
-│   └── mcp-powershell/
+│   ├── mcp-powershell/
+│   │   ├── main.go
+│   │   ├── powershell_operations.go
+│   │   ├── security.go
+│   │   ├── audit.go
+│   │   ├── mcp.go
+│   │   └── types.go
+│   └── mcp-systeminfo/
 │       ├── main.go
-│       ├── powershell_operations.go
+│       ├── systeminfo_operations.go
+│       ├── shell_info.go
+│       ├── devtools_info.go
+│       ├── network_info.go
+│       ├── repository_info.go
 │       ├── security.go
 │       ├── audit.go
 │       ├── mcp.go
