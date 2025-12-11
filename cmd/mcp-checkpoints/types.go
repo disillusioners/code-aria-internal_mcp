@@ -68,3 +68,28 @@ type CheckpointMetadata struct {
 	Checkpoint
 	CreatedBy string `json:"created_by"`
 }
+
+// FileChange represents a file change with its status
+type FileChange struct {
+	Path   string
+	Status string // "new", "modified", "deleted"
+}
+
+// CheckpointWithStatus extends Checkpoint with file status information
+type CheckpointWithStatus struct {
+	Checkpoint
+	FilesWithStatus []FileStatusEntry
+}
+
+// FileStatusEntry represents a file in a checkpoint with its status
+type FileStatusEntry struct {
+	Path   string
+	Status string // "new", "modified", "deleted"
+}
+
+// FileRestoreOperation tracks a restore operation for rollback
+type FileRestoreOperation struct {
+	Type     string // "copy" or "delete"
+	FilePath string
+	Backup   string // backup path for rollback (if needed)
+}

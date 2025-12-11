@@ -2,12 +2,10 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"testing"
 	"time"
 )
 
@@ -361,12 +359,12 @@ func ExampleRunTestSuite() {
 		WithRaceDetector().
 		WithTimeout(15 * time.Minute)
 
-	if err := runner.ValidateTestEnvironment(); err != nil {
+	if err := ValidateTestEnvironment(); err != nil {
 		fmt.Printf("Test environment validation failed: %v\n", err)
 		return
 	}
 
-	runner.ShowTestSummary()
+	ShowTestSummary()
 
 	if err := runner.RunAllTests(); err != nil {
 		fmt.Printf("Test suite failed: %v\n", err)

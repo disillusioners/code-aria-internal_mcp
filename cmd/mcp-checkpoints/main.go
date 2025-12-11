@@ -3,18 +3,12 @@ package main
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
 	"log"
 	"os"
 )
 
 func main() {
 	log.Println("MCP Checkpoints Server starting...")
-
-	// Initialize checkpoints directory
-	if err := initCheckpointDir(); err != nil {
-		log.Fatalf("Failed to initialize checkpoint directory: %v", err)
-	}
 
 	// Setup MCP communication
 	scanner := bufio.NewScanner(os.Stdin)
@@ -50,15 +44,4 @@ func main() {
 	if err := scanner.Err(); err != nil {
 		log.Fatalf("Scanner error: %v", err)
 	}
-}
-
-// initCheckpointDir creates the checkpoint directory if it doesn't exist
-func initCheckpointDir() error {
-	repoPath := os.Getenv("REPO_PATH")
-	if repoPath == "" {
-		return fmt.Errorf("REPO_PATH environment variable not set")
-	}
-
-	checkpointDir := fmt.Sprintf("%s/.mcp-checkpoints", repoPath)
-	return os.MkdirAll(checkpointDir, 0755)
 }

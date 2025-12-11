@@ -21,6 +21,7 @@ func toolCreateCheckpoint(args map[string]interface{}) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	defer manager.Close()
 
 	checkpoint, err := manager.CreateCheckpoint(name, description)
 	if err != nil {
@@ -41,6 +42,7 @@ func toolListCheckpoints(args map[string]interface{}) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	defer manager.Close()
 
 	checkpoints, err := manager.ListCheckpoints()
 	if err != nil {
@@ -66,6 +68,7 @@ func toolGetCheckpoint(args map[string]interface{}) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	defer manager.Close()
 
 	checkpoint, err := manager.GetCheckpoint(id)
 	if err != nil {
@@ -91,6 +94,7 @@ func toolRestoreCheckpoint(args map[string]interface{}) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	defer manager.Close()
 
 	// Get checkpoint info for response before restoring
 	checkpoint, err := manager.GetCheckpoint(id)
@@ -127,6 +131,7 @@ func toolDeleteCheckpoint(args map[string]interface{}) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	defer manager.Close()
 
 	// Get checkpoint info for response before deleting
 	checkpoint, err := manager.GetCheckpoint(id)
