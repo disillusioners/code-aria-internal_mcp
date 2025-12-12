@@ -1,4 +1,4 @@
-.PHONY: build-mcp-servers install-mcp-servers clean-mcp-servers mcp-servers
+.PHONY: build-mcp-servers install-mcp-servers clean-mcp-servers mcp-servers test test-mcp-lang-go test-all
 
 # Build all MCP server executables
 build-mcp-servers:
@@ -50,6 +50,32 @@ clean-mcp-servers:
 	@echo "Cleaning MCP server executables..."
 	@rm -f mcp-filesystem mcp-codebase mcp-git mcp-code-edit mcp-bash mcp-powershell mcp-systeminfo mcp-checkpoints mcp-lang-go
 	@echo "MCP server cleanup complete"
+
+# Test mcp-lang-go server
+test-mcp-lang-go:
+	@echo "Testing mcp-lang-go server..."
+	@cd cmd/mcp-lang-go && go test -v -cover ./...
+
+# Test all MCP servers that have tests
+test-all: test-mcp-lang-go
+	@echo "All tests completed!"
+
+# Run mcp-lang-go tests with coverage
+test-mcp-lang-go-coverage:
+	@echo "Running mcp-lang-go tests with coverage..."
+	@cd cmd/mcp-lang-go && go test -v -coverprofile=coverage.out ./...
+	@cd cmd/mcp-lang-go && go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report generated: cmd/mcp-lang-go/coverage.html"
+
+# Run integration tests (requires golangci-lint)
+test-mcp-lang-go-integration:
+	@echo "Running mcp-lang-go integration tests..."
+	@cd cmd/mcp-lang-go && go test -v -tags=integration ./...
+
+# Run benchmarks for mcp-lang-go
+bench-mcp-lang-go:
+	@echo "Running mcp-lang-go benchmarks..."
+	@cd cmd/mcp-lang-go && go test -bench=. -benchmem ./...
 
 # Convenience target: build and install MCP servers
 mcp-servers: install-mcp-servers
