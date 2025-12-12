@@ -63,13 +63,14 @@ type LintResult struct {
 
 // LintIssue represents a single lint issue
 type LintIssue struct {
-	File     string `json:"file"`
-	Line     int    `json:"line"`
-	Column   int    `json:"column,omitempty"`
-	Severity string `json:"severity"` // error, warning, info
-	Linter   string `json:"linter"`
-	Message  string `json:"message"`
-	Fix      string `json:"fix,omitempty"`
+	File        string   `json:"file"`
+	Line        int      `json:"line"`
+	Column      int      `json:"column,omitempty"`
+	Severity    string   `json:"severity"` // error, warning, info
+	Linter      string   `json:"linter"`
+	Message     string   `json:"message"`
+	Fix         string   `json:"fix,omitempty"`
+	SourceLines []string `json:"source_lines,omitempty"`
 }
 
 

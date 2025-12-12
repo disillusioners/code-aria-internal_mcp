@@ -10,8 +10,8 @@ import (
 	"strings"
 )
 
-// toolLint executes golangci-lint and returns structured results
-func toolLint(args map[string]interface{}) (interface{}, error) {
+// toolLintEmbedded executes golangci-lint with automatic binary management
+func toolLintEmbedded(args map[string]interface{}) (interface{}, error) {
 	// Get target (file, directory, or "." for entire repo)
 	target := "."
 	if t, ok := args["target"].(string); ok && t != "" {
@@ -45,15 +45,16 @@ func toolLint(args map[string]interface{}) (interface{}, error) {
 		targetPath = filepath.Join(repoPath, target)
 	}
 
-	// Check if golangci-lint is available
-	if _, err := exec.LookPath("golangci-lint"); err != nil {
-		return nil, fmt.Errorf("golangci-lint is not installed or not in PATH. Please install it from https://golangci-lint.run/")
+	// Ensure we have golangci-lint binary
+	golangciLintPath, err := ensureGolangciLint()
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup golangci-lint: %v", err)
 	}
 
 	// Build command
 	// Use line-number format for easier parsing (more reliable than default)
-	cmd := exec.Command("golangci-lint", "run", "--out-format", "line-number")
-	
+	cmd := exec.Command(golangciLintPath, "run", "--out-format", "line-number")
+
 	// Add config file if specified or if default exists
 	if configPath != "" {
 		if !filepath.IsAbs(configPath) {
@@ -86,7 +87,7 @@ func toolLint(args map[string]interface{}) (interface{}, error) {
 	cmd.Stderr = &stderr
 
 	// Execute command
-	err := cmd.Run()
+	err = cmd.Run()
 	output := stdout.String()
 	errOutput := stderr.String()
 
@@ -135,6 +136,94 @@ func toolLint(args map[string]interface{}) (interface{}, error) {
 	return result, nil
 }
 
+// ensureGolangciLint ensures golangci-lint is available by either using system binary or downloading it
+func ensureGolangciLint() (string, error) {
+	// First, try to find golangci-lint in PATH
+	if path, err := exec.LookPath("golangci-lint"); err == nil {
+		return path, nil
+	}
+
+	// If not found in PATH, try to create a local installation
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home directory: %v", err)
+	}
+
+	// Create ~/.local/bin directory if it doesn't exist
+	localBinDir := filepath.Join(homeDir, ".local", "bin")
+	if err := os.MkdirAll(localBinDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create local bin directory: %v", err)
+	}
+
+	// Check if golangci-lint is already installed locally
+	localBinary := filepath.Join(localBinDir, "golangci-lint")
+	if _, err := os.Stat(localBinary); err == nil {
+		return localBinary, nil
+	}
+
+	// Try to install golangci-lint using the official install script
+	installScript := `
+#!/bin/bash
+set -e
+
+# Detect architecture
+ARCH=$(uname -m)
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+
+case $ARCH in
+    x86_64) ARCH="amd64" ;;
+    aarch64|arm64) ARCH="arm64" ;;
+    armv7l) ARCH="armv7" ;;
+    *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+esac
+
+# Download golangci-lint
+VERSION="1.62.2"
+FILENAME="golangci-lint-${VERSION}-${OS}-${ARCH}.tar.gz"
+URL="https://github.com/golangci/golangci-lint/releases/download/v${VERSION}/${FILENAME}"
+
+echo "Downloading golangci-lint from $URL..."
+cd /tmp
+if command -v curl >/dev/null 2>&1; then
+    curl -sSfL "$URL" -o golangci-lint.tar.gz
+elif command -v wget >/dev/null 2>&1; then
+    wget -q "$URL" -O golangci-lint.tar.gz
+else
+    echo "Neither curl nor wget is available"
+    exit 1
+fi
+
+# Extract
+tar -xzf golangci-lint.tar.gz
+cp "golangci-lint-${VERSION}-${OS}-${ARCH}/golangci-lint" "$1"
+chmod +x "$1"
+
+echo "golangci-lint installed successfully to $1"
+`
+
+	// Create temporary script file
+	scriptFile := filepath.Join(os.TempDir(), "install-golangci-lint.sh")
+	if err := os.WriteFile(scriptFile, []byte(installScript), 0755); err != nil {
+		return "", fmt.Errorf("failed to create install script: %v", err)
+	}
+	defer os.Remove(scriptFile)
+
+	// Execute install script
+	cmd := exec.Command("bash", scriptFile, localBinary)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("failed to install golangci-lint: %v", err)
+	}
+
+	// Verify installation
+	if _, err := os.Stat(localBinary); err != nil {
+		return "", fmt.Errorf("golangci-lint installation failed")
+	}
+
+	return localBinary, nil
+}
+
 // parseLintOutput parses golangci-lint output into structured issues
 func parseLintOutput(output string) []LintIssue {
 	if len(strings.TrimSpace(output)) == 0 {
@@ -147,7 +236,7 @@ func parseLintOutput(output string) []LintIssue {
 	// golangci-lint line-number format:
 	// file.go:line:column: message (linter)
 	// file.go:line: message (linter)  (when column is not available)
-	
+
 	// Regex to match lint output in line-number format
 	// Format: file:line:column: message (linter)
 	// or: file:line: message (linter)
@@ -217,7 +306,7 @@ func parseLintOutput(output string) []LintIssue {
 // determineSeverity determines the severity of a lint issue
 func determineSeverity(message, linter string) string {
 	messageLower := strings.ToLower(message)
-	
+
 	// Check for explicit severity indicators
 	if strings.Contains(messageLower, "error") || strings.Contains(messageLower, "fatal") {
 		return "error"
@@ -241,5 +330,3 @@ func determineSeverity(message, linter string) string {
 	// Default to warning for unknown cases
 	return "warning"
 }
-
-

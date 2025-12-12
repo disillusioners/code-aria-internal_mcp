@@ -182,7 +182,7 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 
 		switch opType {
 		case "lint":
-			result, err = toolLint(params)
+			result, err = toolLintEmbedded(params)
 		default:
 			err = fmt.Errorf("unknown operation type: %s", opType)
 		}
