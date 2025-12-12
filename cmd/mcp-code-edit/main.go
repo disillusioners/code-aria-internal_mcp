@@ -208,10 +208,13 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 			err = fmt.Errorf("unknown operation type: %s", opType)
 		}
 
+		// Optimize params before adding to results
+		optimizedParams := optimizeParams(opType, params)
+
 		if err != nil {
 			results = append(results, map[string]interface{}{
 				"operation": opType,
-				"params":    params,
+				"params":    optimizedParams,
 				"status":    "Error",
 				"message":   err.Error(),
 			})
@@ -227,7 +230,7 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 
 			results = append(results, map[string]interface{}{
 				"operation": opType,
-				"params":    params,
+				"params":    optimizedParams,
 				"status":    "Success",
 				"result":    parsedResult,
 			})
@@ -244,6 +247,79 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 	}
 
 	encoder.Encode(response)
+}
+
+// optimizeParams optimizes params for response by omitting large content fields
+// for write operations and truncating long strings for other operations
+func optimizeParams(opType string, params map[string]interface{}) map[string]interface{} {
+	optimized := make(map[string]interface{})
+	
+	// Fields to always preserve (metadata)
+	preserveFields := map[string]bool{
+		"file_path":        true,
+		"path":             true,
+		"old_path":         true,
+		"new_path":         true,
+		"source_path":      true,
+		"destination_path": true,
+		"root_path":        true,
+		"max_depth":        true,
+	}
+	
+	// For write operations, omit content fields entirely
+	switch opType {
+	case "create_file":
+		// Omit content field
+		for k, v := range params {
+			if k == "content" {
+				continue
+			}
+			optimized[k] = v
+		}
+		return optimized
+		
+	case "replace_code":
+		// Omit code/content fields
+		for k, v := range params {
+			if k == "new_code" || k == "new_content" || k == "old_code" || k == "old_content" {
+				continue
+			}
+			optimized[k] = v
+		}
+		return optimized
+		
+	case "apply_diff":
+		// Omit diff and content fields
+		for k, v := range params {
+			if k == "diff" || k == "old_content" || k == "new_content" {
+				continue
+			}
+			optimized[k] = v
+		}
+		return optimized
+	}
+	
+	// For other operations, truncate long string values (> 20 lines)
+	for k, v := range params {
+		if preserveFields[k] {
+			// Always preserve metadata fields as-is
+			optimized[k] = v
+		} else if strVal, ok := v.(string); ok {
+			// Truncate string values > 20 lines
+			lines := strings.Split(strVal, "\n")
+			if len(lines) > 20 {
+				truncated := strings.Join(lines[:20], "\n")
+				optimized[k] = fmt.Sprintf("%s\n... (truncated, %d total lines)", truncated, len(lines))
+			} else {
+				optimized[k] = v
+			}
+		} else {
+			// Preserve non-string values as-is
+			optimized[k] = v
+		}
+	}
+	
+	return optimized
 }
 
 // getFilePath extracts file path from args, accepting both "path" and "file_path"
