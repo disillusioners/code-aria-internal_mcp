@@ -178,8 +178,8 @@ func TestExampleGitIntegration(t *testing.T) {
 
 	// Create initial files
 	err := helper.CreateTestFiles(map[string]string{
-		"app.py":   "print('Hello, World!')",
-		"README":   "Test Application",
+		"app.py":     "print('Hello, World!')",
+		"README":     "Test Application",
 		".gitignore": "*.pyc\n__pycache__/",
 	})
 	if err != nil {
@@ -229,6 +229,14 @@ func TestExampleGitIntegration(t *testing.T) {
 
 	// Verify we have 2 checkpoints
 	helper.AssertCheckpointCount(t, 2)
+
+	// Verify checkpoint2 exists
+	if checkpoint2 == nil {
+		t.Fatal("checkpoint2 should not be nil")
+	}
+	if checkpoint2.ID == "" {
+		t.Fatal("checkpoint2 should have an ID")
+	}
 
 	// Restore to pre-commit state
 	err = helper.GetManager().RestoreCheckpoint(checkpoint1.ID)

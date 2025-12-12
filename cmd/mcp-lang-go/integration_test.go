@@ -4,11 +4,10 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -392,8 +391,6 @@ func main() {
 
 // TestIntegrationErrorHandling tests error handling scenarios
 func TestIntegrationErrorHandling(t *testing.T) {
-	tmpDir := CreateTempDir(t)
-
 	// Don't set REPO_PATH to test error handling
 	originalEnv := CaptureEnvironment()
 	defer func() {
@@ -506,12 +503,19 @@ func BenchmarkIntegrationLint(b *testing.B) {
 		b.Skip("golangci-lint not available for integration tests")
 	}
 
-	tmpDir := CreateTempDir(b)
+	// Create temporary directory
+	tmpDir, err := os.MkdirTemp("", "mcp-lang-go-bench-*")
+	if err != nil {
+		b.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
 
 	// Initialize Go module
 	cmd := exec.Command("go", "mod", "init", "test.example.com/bench-test")
 	cmd.Dir = tmpDir
-	AssertNoError(b, cmd.Run())
+	if err := cmd.Run(); err != nil {
+		b.Fatalf("Failed to initialize go module: %v", err)
+	}
 
 	// Create a larger Go file for benchmarking
 	var content strings.Builder
@@ -531,7 +535,11 @@ func BenchmarkFunc%d() {
 `, i, i, i, i))
 	}
 
-	CreateTestFile(b, tmpDir, "bench.go", content.String())
+	// Create test file
+	benchFile := tmpDir + "/bench.go"
+	if err := os.WriteFile(benchFile, []byte(content.String()), 0644); err != nil {
+		b.Fatalf("Failed to create test file: %v", err)
+	}
 
 	// Set up environment
 	originalEnv := CaptureEnvironment()

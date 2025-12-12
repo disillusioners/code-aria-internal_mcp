@@ -14,10 +14,10 @@ import (
 // BenchmarkCreateCheckpoint benchmarks checkpoint creation with different scenarios
 func BenchmarkCreateCheckpoint(b *testing.B) {
 	scenarios := []struct {
-		name      string
-		numFiles  int
-		fileSize  int
-		nested    bool
+		name     string
+		numFiles int
+		fileSize int
+		nested   bool
 	}{
 		{"Small_Files", 10, 1024, false},
 		{"Medium_Files", 100, 10240, false},
@@ -28,7 +28,7 @@ func BenchmarkCreateCheckpoint(b *testing.B) {
 
 	for _, scenario := range scenarios {
 		b.Run(scenario.name, func(b *testing.B) {
-			tempDir, manager, cleanup := setupBenchmarkEnvironment(b, scenario.numFiles, scenario.fileSize, scenario.nested)
+			_, manager, cleanup := setupBenchmarkEnvironment(b, scenario.numFiles, scenario.fileSize, scenario.nested)
 			defer cleanup()
 
 			b.ResetTimer()
@@ -52,7 +52,7 @@ func BenchmarkCreateCheckpoint(b *testing.B) {
 
 // BenchmarkListCheckpoints benchmarks listing checkpoints with different numbers of checkpoints
 func BenchmarkListCheckpoints(b *testing.B) {
-	tempDir, manager, cleanup := setupBenchmarkEnvironment(b, 10, 1024, false)
+	_, manager, cleanup := setupBenchmarkEnvironment(b, 10, 1024, false)
 	defer cleanup()
 
 	// Pre-create checkpoints for listing
@@ -127,7 +127,7 @@ func BenchmarkRestoreCheckpoint(b *testing.B) {
 
 // BenchmarkDeleteCheckpoint benchmarks deletion of checkpoints
 func BenchmarkDeleteCheckpoint(b *testing.B) {
-	tempDir, manager, cleanup := setupBenchmarkEnvironment(b, 100, 10240, false)
+	_, manager, cleanup := setupBenchmarkEnvironment(b, 100, 10240, false)
 	defer cleanup()
 
 	// Pre-create checkpoints to delete
@@ -165,11 +165,11 @@ func BenchmarkGenerateID(b *testing.B) {
 // BenchmarkCopyFile benchmarks file copying with different sizes
 func BenchmarkCopyFile(b *testing.B) {
 	sizes := []int{
-		1024,      // 1KB
-		10240,     // 10KB
-		102400,    // 100KB
-		1048576,   // 1MB
-		10485760,  // 10MB
+		1024,     // 1KB
+		10240,    // 10KB
+		102400,   // 100KB
+		1048576,  // 1MB
+		10485760, // 10MB
 	}
 
 	for _, size := range sizes {
@@ -206,7 +206,7 @@ func BenchmarkCopyFile(b *testing.B) {
 
 // BenchmarkConcurrentOperations benchmarks concurrent checkpoint operations
 func BenchmarkConcurrentOperations(b *testing.B) {
-	tempDir, manager, cleanup := setupBenchmarkEnvironment(b, 50, 2048, false)
+	_, manager, cleanup := setupBenchmarkEnvironment(b, 50, 2048, false)
 	defer cleanup()
 
 	b.ResetTimer()
@@ -226,7 +226,7 @@ func BenchmarkConcurrentOperations(b *testing.B) {
 
 // BenchmarkMemoryUsage benchmarks memory usage during checkpoint operations
 func BenchmarkMemoryUsage(b *testing.B) {
-	tempDir, manager, cleanup := setupBenchmarkEnvironment(b, 100, 10240, false)
+	_, manager, cleanup := setupBenchmarkEnvironment(b, 100, 10240, false)
 	defer cleanup()
 
 	var m1, m2 runtime.MemStats
@@ -321,8 +321,48 @@ func setupBenchmarkEnvironment(b *testing.B, numFiles, fileSize int, nested bool
 
 // TestBenchmarkSanity runs a quick sanity check to ensure benchmarks work
 func TestBenchmarkSanity(t *testing.T) {
-	tempDir, manager, cleanup := setupBenchmarkEnvironment(t, 5, 1024, false)
-	defer cleanup()
+	// Create a temporary directory for testing
+	tempDir, err := os.MkdirTemp("", "checkpoint-bench-sanity")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Initialize git repository
+	repo, err := git.PlainInit(tempDir, false)
+	if err != nil {
+		t.Fatalf("Failed to init git repo: %v", err)
+	}
+
+	// Create test files
+	w, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("Failed to get worktree: %v", err)
+	}
+
+	content := strings.Repeat("X", 1024)
+	for i := 0; i < 5; i++ {
+		fileName := fmt.Sprintf("file%d.txt", i)
+		filePath := filepath.Join(tempDir, fileName)
+		err = os.WriteFile(filePath, []byte(content), 0644)
+		if err != nil {
+			t.Fatalf("Failed to create file %d: %v", i, err)
+		}
+		_, err = w.Add(fileName)
+		if err != nil {
+			t.Fatalf("Failed to add file %d: %v", i, err)
+		}
+	}
+
+	// Set environment variable
+	os.Setenv("REPO_PATH", tempDir)
+	defer os.Unsetenv("REPO_PATH")
+
+	// Create checkpoint manager
+	manager, err := NewCheckpointManager()
+	if err != nil {
+		t.Fatalf("Failed to create checkpoint manager: %v", err)
+	}
 
 	// Create a checkpoint
 	checkpoint, err := manager.CreateCheckpoint("sanity-test", "Sanity check checkpoint")

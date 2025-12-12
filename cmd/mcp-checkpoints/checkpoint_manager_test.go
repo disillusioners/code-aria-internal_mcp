@@ -132,10 +132,14 @@ func TestCreateCheckpoint(t *testing.T) {
 		t.Errorf("Expected content '%s', got '%s'", expectedContent, string(content))
 	}
 
-	// Verify metadata file exists
-	metadataFile := filepath.Join(checkpointPath, METADATA_FILE)
-	if _, err := os.Stat(metadataFile); os.IsNotExist(err) {
-		t.Errorf("Metadata file does not exist: %s", metadataFile)
+	// Verify database contains checkpoint metadata
+	// (Metadata is now stored in database, not a file)
+	checkpointInfo, err := manager.GetCheckpoint(checkpoint.ID)
+	if err != nil {
+		t.Errorf("Failed to get checkpoint from database: %v", err)
+	}
+	if checkpointInfo == nil {
+		t.Error("Checkpoint not found in database")
 	}
 }
 
