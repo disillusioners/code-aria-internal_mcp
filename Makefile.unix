@@ -12,13 +12,14 @@ build-mcp-servers:
 	@go build -o mcp-systeminfo ./cmd/mcp-systeminfo
 	@go build -o mcp-checkpoints ./cmd/mcp-checkpoints
 	@go build -o mcp-lang-go ./cmd/mcp-lang-go
+	@go build -o mcp-guidelines ./cmd/mcp-guidelines
 	@echo "MCP servers built successfully:"
-	@ls -lh mcp-filesystem mcp-codebase mcp-git mcp-code-edit mcp-bash mcp-powershell mcp-systeminfo mcp-checkpoints mcp-lang-go 2>/dev/null || true
+	@ls -lh mcp-filesystem mcp-codebase mcp-git mcp-code-edit mcp-bash mcp-powershell mcp-systeminfo mcp-checkpoints mcp-lang-go mcp-guidelines 2>/dev/null || true
 
 # Install MCP server executables to PATH location
 install-mcp-servers: build-mcp-servers
 	@echo "Installing MCP servers..."
-	@if [ ! -f mcp-filesystem ] || [ ! -f mcp-codebase ] || [ ! -f mcp-git ] || [ ! -f mcp-code-edit ] || [ ! -f mcp-bash ] || [ ! -f mcp-powershell ] || [ ! -f mcp-systeminfo ] || [ ! -f mcp-checkpoints ] || [ ! -f mcp-lang-go ]; then \
+	@if [ ! -f mcp-filesystem ] || [ ! -f mcp-codebase ] || [ ! -f mcp-git ] || [ ! -f mcp-code-edit ] || [ ! -f mcp-bash ] || [ ! -f mcp-powershell ] || [ ! -f mcp-systeminfo ] || [ ! -f mcp-checkpoints ] || [ ! -f mcp-lang-go ] || [ ! -f mcp-guidelines ]; then \
 		echo "Error: MCP servers not built. Run 'make build-mcp-servers' first."; \
 		exit 1; \
 	fi
@@ -35,8 +36,8 @@ install-mcp-servers: build-mcp-servers
 		exit 1; \
 	fi; \
 	echo "Installing to $$INSTALL_DIR"; \
-	cp mcp-filesystem mcp-codebase mcp-git mcp-code-edit mcp-bash mcp-powershell mcp-systeminfo mcp-checkpoints mcp-lang-go "$$INSTALL_DIR/"; \
-	chmod +x "$$INSTALL_DIR/mcp-filesystem" "$$INSTALL_DIR/mcp-codebase" "$$INSTALL_DIR/mcp-git" "$$INSTALL_DIR/mcp-code-edit" "$$INSTALL_DIR/mcp-bash" "$$INSTALL_DIR/mcp-powershell" "$$INSTALL_DIR/mcp-systeminfo" "$$INSTALL_DIR/mcp-checkpoints" "$$INSTALL_DIR/mcp-lang-go"; \
+	cp mcp-filesystem mcp-codebase mcp-git mcp-code-edit mcp-bash mcp-powershell mcp-systeminfo mcp-checkpoints mcp-lang-go mcp-guidelines "$$INSTALL_DIR/"; \
+	chmod +x "$$INSTALL_DIR/mcp-filesystem" "$$INSTALL_DIR/mcp-codebase" "$$INSTALL_DIR/mcp-git" "$$INSTALL_DIR/mcp-code-edit" "$$INSTALL_DIR/mcp-bash" "$$INSTALL_DIR/mcp-powershell" "$$INSTALL_DIR/mcp-systeminfo" "$$INSTALL_DIR/mcp-checkpoints" "$$INSTALL_DIR/mcp-lang-go" "$$INSTALL_DIR/mcp-guidelines"; \
 	echo "MCP servers installed successfully to $$INSTALL_DIR"; \
 	if ! echo "$$PATH" | grep -q "$$INSTALL_DIR"; then \
 		echo ""; \
@@ -48,7 +49,7 @@ install-mcp-servers: build-mcp-servers
 # Clean MCP server build artifacts
 clean-mcp-servers:
 	@echo "Cleaning MCP server executables..."
-	@rm -f mcp-filesystem mcp-codebase mcp-git mcp-code-edit mcp-bash mcp-powershell mcp-systeminfo mcp-checkpoints mcp-lang-go
+	@rm -f mcp-filesystem mcp-codebase mcp-git mcp-code-edit mcp-bash mcp-powershell mcp-systeminfo mcp-checkpoints mcp-lang-go mcp-guidelines
 	@echo "MCP server cleanup complete"
 
 # Test mcp-lang-go server

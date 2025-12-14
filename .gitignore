@@ -16,6 +16,8 @@
 # Go workspace file
 go.work
 
+.env
+
 
 # MCP server executables (root directory only)
 /mcp-filesystem
