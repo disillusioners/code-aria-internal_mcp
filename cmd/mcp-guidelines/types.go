@@ -58,12 +58,29 @@ type Content struct {
 }
 
 // Guideline data structures
+type GuidelineCategory struct {
+	ID          string                 `json:"id"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description,omitempty"`
+	Color       string                 `json:"color,omitempty"`
+	Icon        string                 `json:"icon,omitempty"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	IsActive    bool                   `json:"is_active"`
+	TenantID    string                 `json:"tenant_id"`
+	CreatedAt   time.Time              `json:"created_at"`
+	UpdatedAt   time.Time              `json:"updated_at"`
+	CreatedBy   string                 `json:"created_by,omitempty"`
+	UpdatedBy   string                 `json:"updated_by,omitempty"`
+}
+
 type Guideline struct {
 	ID          string                 `json:"id"`
 	Name        string                 `json:"name"`
 	Description string                 `json:"description,omitempty"`
 	Content     string                 `json:"content"`
-	Category    string                 `json:"category,omitempty"`
+	CategoryID  *string                `json:"category_id,omitempty"`
+	Category    *GuidelineCategory     `json:"category,omitempty"` // Populated when joined
+	CategoryOld string                 `json:"category,omitempty"` // Deprecated: kept for backward compatibility
 	Tags        []string               `json:"tags,omitempty"`
 	TenantID    string                 `json:"tenant_id,omitempty"`
 	IsActive    bool                   `json:"is_active"`
