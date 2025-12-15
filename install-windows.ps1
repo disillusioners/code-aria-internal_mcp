@@ -1,7 +1,7 @@
 # PowerShell script to install MCP servers on Windows
 
 # Check if all executables exist
-$requiredFiles = @("mcp-filesystem.exe", "mcp-codebase.exe", "mcp-git.exe", "mcp-code-edit.exe", "mcp-bash.exe", "mcp-powershell.exe", "mcp-systeminfo.exe")
+$requiredFiles = @("mcp-filesystem.exe", "mcp-codebase.exe", "mcp-git.exe", "mcp-code-edit.exe", "mcp-bash.exe", "mcp-powershell.exe", "mcp-systeminfo.exe", "mcp-documents.exe")
 foreach ($file in $requiredFiles) {
     if (-not (Test-Path $file)) {
         Write-Error "Error: MCP servers not built. Run 'make build-mcp-servers' first."
