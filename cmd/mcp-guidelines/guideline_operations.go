@@ -130,3 +130,4 @@ func toolSearchGuidelines(args map[string]interface{}) (string, error) {
 
 	return string(resultJSON), nil
 }
+

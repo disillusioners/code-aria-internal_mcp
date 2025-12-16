@@ -227,3 +227,4 @@ func TestSendError(t *testing.T) {
 		t.Errorf("sendError() error message = %s, want 'Test error'", response.Error.Message)
 	}
 }
+
