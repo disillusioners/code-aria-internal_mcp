@@ -708,3 +708,310 @@ func toolGetAllWorkingChanges(args map[string]interface{}) (string, error) {
 
 	return string(resultJSON), nil
 }
+
+// toolStageFiles stages files for commit
+func toolStageFiles(args map[string]interface{}) (string, error) {
+	repoPath := os.Getenv("REPO_PATH")
+	if repoPath == "" {
+		return "", fmt.Errorf("REPO_PATH not set")
+	}
+
+	// Get file_paths parameter
+	filePathsInterface, ok := args["file_paths"].([]interface{})
+	if !ok {
+		return "", fmt.Errorf("file_paths is required and must be an array")
+	}
+
+	if len(filePathsInterface) == 0 {
+		return "", fmt.Errorf("file_paths cannot be empty")
+	}
+
+	// Convert to string slice
+	filePaths := make([]string, 0, len(filePathsInterface))
+	for _, fp := range filePathsInterface {
+		filePath, ok := fp.(string)
+		if !ok {
+			return "", fmt.Errorf("all file_paths must be strings")
+		}
+		// Resolve path relative to REPO_PATH
+		fullPath := resolvePath(filePath)
+		relPath, err := filepath.Rel(repoPath, fullPath)
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve path %s: %w", filePath, err)
+		}
+		// Check if path is outside repository
+		if strings.HasPrefix(relPath, "..") {
+			return "", fmt.Errorf("file path %s is outside repository", filePath)
+		}
+		filePaths = append(filePaths, relPath)
+	}
+
+	// Open repository
+	r, err := git.PlainOpen(repoPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open repository: %w", err)
+	}
+
+	// Get worktree
+	w, err := r.Worktree()
+	if err != nil {
+		return "", fmt.Errorf("failed to get worktree: %w", err)
+	}
+
+	// Stage each file
+	stagedFiles := make([]string, 0)
+	for _, filePath := range filePaths {
+		_, err := w.Add(filePath)
+		if err != nil {
+			return "", fmt.Errorf("failed to stage file %s: %w", filePath, err)
+		}
+		stagedFiles = append(stagedFiles, filePath)
+	}
+
+	// Return result
+	result := map[string]interface{}{
+		"staged_count": len(stagedFiles),
+		"staged_files": stagedFiles,
+	}
+
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal result: %w", err)
+	}
+
+	return string(resultJSON), nil
+}
+
+// toolCommitChanges commits staged changes
+func toolCommitChanges(args map[string]interface{}) (string, error) {
+	repoPath := os.Getenv("REPO_PATH")
+	if repoPath == "" {
+		return "", fmt.Errorf("REPO_PATH not set")
+	}
+
+	// Get commit message
+	message, ok := args["message"].(string)
+	if !ok || message == "" {
+		return "", fmt.Errorf("message is required and cannot be empty")
+	}
+
+	// Get allow_empty flag (default false)
+	allowEmpty := false
+	if ae, ok := args["allow_empty"].(bool); ok {
+		allowEmpty = ae
+	}
+
+	// Open repository
+	r, err := git.PlainOpen(repoPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open repository: %w", err)
+	}
+
+	// Get worktree
+	w, err := r.Worktree()
+	if err != nil {
+		return "", fmt.Errorf("failed to get worktree: %w", err)
+	}
+
+	// Check if there are staged changes
+	status, err := w.Status()
+	if err != nil {
+		return "", fmt.Errorf("failed to get git status: %w", err)
+	}
+
+	hasStagedChanges := false
+	for _, s := range status {
+		if s.Staging != ' ' {
+			hasStagedChanges = true
+			break
+		}
+	}
+
+	if !hasStagedChanges && !allowEmpty {
+		return "", fmt.Errorf("no staged changes to commit. Use allow_empty=true to create an empty commit")
+	}
+
+	// Get author from git config
+	config, err := r.Config()
+	if err != nil {
+		return "", fmt.Errorf("failed to get git config: %w", err)
+	}
+
+	authorName := config.User.Name
+	authorEmail := config.User.Email
+
+	// Use defaults if not set
+	if authorName == "" {
+		authorName = "LLM Agent"
+	}
+	if authorEmail == "" {
+		authorEmail = "llm-agent@example.com"
+	}
+
+	// Create commit
+	commitHash, err := w.Commit(message, &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  authorName,
+			Email: authorEmail,
+			When:  time.Now(),
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to commit changes: %w", err)
+	}
+
+	// Return result
+	result := map[string]interface{}{
+		"commit_hash": commitHash.String(),
+		"message":     message,
+		"author": map[string]interface{}{
+			"name":  authorName,
+			"email": authorEmail,
+		},
+	}
+
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal result: %w", err)
+	}
+
+	return string(resultJSON), nil
+}
+
+// toolUnstageFiles unstages files
+func toolUnstageFiles(args map[string]interface{}) (string, error) {
+	repoPath := os.Getenv("REPO_PATH")
+	if repoPath == "" {
+		return "", fmt.Errorf("REPO_PATH not set")
+	}
+
+	// Check if unstaging all files
+	unstagingAll := false
+	if all, ok := args["all"].(bool); ok && all {
+		unstagingAll = true
+	}
+
+	var filePaths []string
+	if !unstagingAll {
+		// Get file_paths parameter
+		filePathsInterface, ok := args["file_paths"].([]interface{})
+		if !ok {
+			return "", fmt.Errorf("file_paths is required (or set all=true) and must be an array")
+		}
+
+		if len(filePathsInterface) == 0 {
+			return "", fmt.Errorf("file_paths cannot be empty (or set all=true)")
+		}
+
+		// Convert to string slice
+		filePaths = make([]string, 0, len(filePathsInterface))
+		for _, fp := range filePathsInterface {
+			filePath, ok := fp.(string)
+			if !ok {
+				return "", fmt.Errorf("all file_paths must be strings")
+			}
+			// Resolve path relative to REPO_PATH
+			fullPath := resolvePath(filePath)
+			relPath, err := filepath.Rel(repoPath, fullPath)
+			if err != nil {
+				return "", fmt.Errorf("failed to resolve path %s: %w", filePath, err)
+			}
+			// Check if path is outside repository
+			if strings.HasPrefix(relPath, "..") {
+				return "", fmt.Errorf("file path %s is outside repository", filePath)
+			}
+			filePaths = append(filePaths, relPath)
+		}
+	}
+
+	// Open repository
+	r, err := git.PlainOpen(repoPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open repository: %w", err)
+	}
+
+	// Get worktree
+	w, err := r.Worktree()
+	if err != nil {
+		return "", fmt.Errorf("failed to get worktree: %w", err)
+	}
+
+	// Get status to find staged files before unstaging
+	statusBefore, err := w.Status()
+	if err != nil {
+		return "", fmt.Errorf("failed to get git status: %w", err)
+	}
+
+	// Get HEAD commit for reset
+	head, err := r.Head()
+	if err != nil {
+		return "", fmt.Errorf("failed to get HEAD: %w", err)
+	}
+
+	// Unstage files
+	unstagedFiles := make([]string, 0)
+	if unstagingAll {
+		// Unstage all files by resetting index to HEAD
+		err = w.Reset(&git.ResetOptions{
+			Commit: head.Hash(),
+		})
+		if err != nil {
+			return "", fmt.Errorf("failed to unstage all files: %w", err)
+		}
+		// Get list of files that were unstaged (all files with staged changes)
+		for file, s := range statusBefore {
+			if s.Staging != ' ' {
+				unstagedFiles = append(unstagedFiles, file)
+			}
+		}
+	} else {
+		// For specific files, we need to use the index directly
+		// Get the index
+		idx, err := r.Storer.Index()
+		if err != nil {
+			return "", fmt.Errorf("failed to get index: %w", err)
+		}
+
+		// Get HEAD tree
+		headCommit, err := r.CommitObject(head.Hash())
+		if err != nil {
+			return "", fmt.Errorf("failed to get HEAD commit: %w", err)
+		}
+		headTree, err := headCommit.Tree()
+		if err != nil {
+			return "", fmt.Errorf("failed to get HEAD tree: %w", err)
+		}
+
+		// For specific files, use git command as go-git doesn't easily support per-file reset
+		// This is a reasonable workaround since go-git's Reset doesn't support Path field
+		for _, filePath := range filePaths {
+			// Check if file is actually staged
+			if fileStatus, ok := statusBefore[filePath]; ok && fileStatus.Staging != ' ' {
+				// Use git command to unstage specific file
+				cmd := exec.Command("git", "reset", "HEAD", "--", filePath)
+				cmd.Dir = repoPath
+				output, err := cmd.CombinedOutput()
+				if err != nil {
+					return "", fmt.Errorf("failed to unstage file %s: %w\nOutput: %s", filePath, err, string(output))
+				}
+				unstagedFiles = append(unstagedFiles, filePath)
+			}
+		}
+		// Clean up unused variables
+		_ = idx
+		_ = headTree
+	}
+
+	// Return result
+	result := map[string]interface{}{
+		"unstaged_count": len(unstagedFiles),
+		"unstaged_files": unstagedFiles,
+	}
+
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal result: %w", err)
+	}
+
+	return string(resultJSON), nil
+}

@@ -73,7 +73,7 @@ func handleToolsList(msg *MCPMessage, encoder *json.Encoder) {
 							"properties": map[string]interface{}{
 								"type": map[string]interface{}{
 									"type":        "string",
-									"description": "Operation type: get_git_status, get_file_diff, get_commit_history, get_changed_files, get_all_working_changes",
+									"description": "Operation type: get_git_status, get_file_diff, get_commit_history, get_changed_files, get_all_working_changes, stage_files, commit_changes, unstage_files",
 								},
 							},
 						},
@@ -178,6 +178,12 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 			result, err = toolGetChangedFiles(params)
 		case "get_all_working_changes":
 			result, err = toolGetAllWorkingChanges(params)
+		case "stage_files":
+			result, err = toolStageFiles(params)
+		case "commit_changes":
+			result, err = toolCommitChanges(params)
+		case "unstage_files":
+			result, err = toolUnstageFiles(params)
 		default:
 			err = fmt.Errorf("unknown operation type: %s", opType)
 		}
