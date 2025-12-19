@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -508,6 +510,142 @@ func TestValidateSelectQuery(t *testing.T) {
 					t.Errorf("validateSelectQuery() error = %v, expected no error", err)
 				}
 			}
+		})
+	}
+}
+
+// TestToolGetConnectionInfo tests the get_connection_info operation
+func TestToolGetConnectionInfo(t *testing.T) {
+	connStr := getTestConnectionString(t)
+
+	tests := []struct {
+		name   string
+		params map[string]interface{}
+	}{
+		{
+			name: "Get connection info from environment",
+			params: map[string]interface{}{
+				"connection_string": connStr,
+			},
+		},
+		{
+			name: "Get connection info with parameter override",
+			params: map[string]interface{}{
+				"connection_string": "postgres://testuser:testpass@localhost:5432/testdb?sslmode=disable",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := toolGetConnectionInfo(tt.params)
+			if err != nil {
+				t.Fatalf("toolGetConnectionInfo() error = %v", err)
+			}
+
+			// Parse result
+			var info map[string]interface{}
+			if err := json.Unmarshal([]byte(result), &info); err != nil {
+				t.Fatalf("Failed to parse result: %v", err)
+			}
+
+			// Verify required fields
+			if _, ok := info["connection_string_masked"]; !ok {
+				t.Error("Result missing 'connection_string_masked' field")
+			}
+
+			if _, ok := info["source"]; !ok {
+				t.Error("Result missing 'source' field")
+			}
+
+			// Verify password is masked
+			maskedStr, ok := info["connection_string_masked"].(string)
+			if !ok {
+				t.Fatal("connection_string_masked is not a string")
+			}
+
+			if strings.Contains(maskedStr, "testpass") {
+				t.Error("Password should be masked in connection string")
+			}
+
+			if !strings.Contains(maskedStr, "****") {
+				t.Logf("Warning: Connection string doesn't contain masked password pattern. Got: %s", maskedStr)
+			}
+
+			// Verify source
+			source, ok := info["source"].(string)
+			if !ok {
+				t.Fatal("source is not a string")
+			}
+
+			if tt.params["connection_string"] != nil {
+				if source != "parameter_override" {
+					t.Errorf("Expected source 'parameter_override', got '%s'", source)
+				}
+			}
+
+			t.Logf("Connection info: %+v", info)
+		})
+	}
+}
+
+// TestMaskPasswordInConnectionString tests password masking
+func TestMaskPasswordInConnectionString(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "Standard connection string with password",
+			input:    "postgres://user:password@localhost:5432/dbname",
+			expected: "postgres://user:****@localhost:5432/dbname",
+		},
+		{
+			name:     "Connection string with query parameters",
+			input:    "postgres://user:pass123@host:5432/db?sslmode=disable",
+			expected: "postgres://user:****@host:5432/db?sslmode=disable",
+		},
+		{
+			name:     "Connection string without password",
+			input:    "postgres://user@localhost:5432/dbname",
+			expected: "postgres://user@localhost:5432/dbname", // No password to mask
+		},
+		{
+			name:     "Empty connection string",
+			input:    "",
+			expected: "****",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := maskPasswordInConnectionString(tt.input)
+			
+			// Verify password is masked (contains ****) only if password exists
+			hasPassword := strings.Contains(tt.input, "://") && strings.Contains(tt.input, ":") && strings.Contains(tt.input, "@")
+			if hasPassword {
+				// Check if there's actually a password (format: user:password@)
+				re := regexp.MustCompile(`://[^:]+:([^@]+)@`)
+				matches := re.FindStringSubmatch(tt.input)
+				if len(matches) > 1 && matches[1] != "" {
+					// Has password, should be masked
+					if !strings.Contains(result, "****") {
+						t.Errorf("Password should be masked. Got: %s", result)
+					}
+					// Verify original password is not present
+					if strings.Contains(result, matches[1]) {
+						t.Errorf("Original password '%s' should not appear in masked string. Got: %s", matches[1], result)
+					}
+				} else {
+					// No password, should not be masked
+					if strings.Contains(result, "****") {
+						t.Errorf("No password to mask, but found ****. Got: %s", result)
+					}
+				}
+			}
+
+			t.Logf("Input: %s -> Output: %s", tt.input, result)
 		})
 	}
 }

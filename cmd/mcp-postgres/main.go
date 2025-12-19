@@ -94,47 +94,82 @@ func handleRequest(msg *MCPMessage, encoder *json.Encoder) {
 func handleToolsList(msg *MCPMessage, encoder *json.Encoder) {
 	tools := []Tool{
 		{
-			Name:        "apply_operations",
-			Description: "Execute multiple PostgreSQL read operations in a single batch call",
+			Name: "apply_operations",
+			Description: `Execute multiple PostgreSQL read operations in a single batch call. This tool provides read-only access to PostgreSQL databases.
+
+Available operations:
+1. list_schemas - List all schemas in the database (excluding system schemas like pg_catalog, information_schema)
+   Parameters: connection_string (optional, overrides POSTGRES_DB_DSN env var)
+   Returns: Array of schema names
+
+2. list_tables - List all tables in a specified schema with metadata (schema name, table name, table type)
+   Parameters: schema (optional, defaults to 'public'), connection_string (optional)
+   Returns: Array of table objects with schema, table_name, and table_type fields
+
+3. describe_table - Get detailed table schema information including columns, data types, constraints, indexes, and metadata
+   Parameters: table_name (required), schema (optional, defaults to 'public'), connection_string (optional)
+   Returns: Table schema object with columns array containing name, type, nullable, default, constraints, indexes, and position
+
+4. query - Execute a SELECT query to retrieve data from the database
+   Parameters: query (required, must be a SELECT statement), params (optional array for parameterized queries), limit (optional, default 1000, max 10000), connection_string (optional)
+   Returns: Array of result objects (one per row) with column names as keys
+   Security: Only SELECT queries are allowed. INSERT, UPDATE, DELETE, DROP, and other modification operations are rejected.
+
+5. get_connection_info - Get connection information including host, port, database, user (password is masked for security)
+   Parameters: connection_string (optional, overrides POSTGRES_DB_DSN env var)
+   Returns: Connection info object with masked connection string, source (environment/parameter), and parsed components (host, port, database, user, parameters)
+
+Connection: The connection string can be provided via POSTGRES_DB_DSN environment variable or per-operation via connection_string parameter. Format: postgres://user:password@host:port/dbname?sslmode=disable
+
+Examples:
+- List schemas: {"type": "list_schemas"}
+- List tables in public schema: {"type": "list_tables", "schema": "public"}
+- Describe a table: {"type": "describe_table", "table_name": "users", "schema": "public"}
+- Query with parameters: {"type": "query", "query": "SELECT * FROM users WHERE id = $1", "params": [123], "limit": 10}
+- Get connection info: {"type": "get_connection_info"}`,
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"operations": map[string]interface{}{
 						"type":        "array",
-						"description": "List of operations to execute",
+						"description": "List of PostgreSQL read operations to execute. Each operation is an object with a 'type' field and operation-specific parameters.",
 						"items": map[string]interface{}{
 							"type":        "object",
-							"description": "Operation object with 'type' field and operation-specific parameters",
+							"description": "Operation object. Must include 'type' field. Available types: list_schemas, list_tables, describe_table, query",
 							"properties": map[string]interface{}{
 								"type": map[string]interface{}{
 									"type":        "string",
-									"description": "Operation type: list_schemas, list_tables, describe_table, query",
+									"enum":        []string{"list_schemas", "list_tables", "describe_table", "query", "get_connection_info"},
+									"description": "Operation type. 'list_schemas': List all schemas. 'list_tables': List tables in a schema. 'describe_table': Get table schema details. 'query': Execute SELECT query. 'get_connection_info': Get connection information with masked password.",
 								},
 								"connection_string": map[string]interface{}{
 									"type":        "string",
-									"description": "Optional PostgreSQL connection string (overrides POSTGRES_DB_DSN env var)",
+									"description": "Optional PostgreSQL connection string. Overrides POSTGRES_DB_DSN environment variable if provided. Format: postgres://user:password@host:port/dbname?sslmode=disable",
 								},
 								"schema": map[string]interface{}{
 									"type":        "string",
-									"description": "Schema name (defaults to 'public' for list_tables and describe_table)",
+									"description": "Schema name. Used by list_tables and describe_table operations. Defaults to 'public' if not specified.",
 								},
 								"table_name": map[string]interface{}{
 									"type":        "string",
-									"description": "Table name (required for describe_table)",
+									"description": "Table name. Required for describe_table operation. Should be the name of the table you want to inspect.",
 								},
 								"query": map[string]interface{}{
 									"type":        "string",
-									"description": "SELECT query to execute (required for query operation)",
+									"description": "SQL SELECT query to execute. Required for query operation. Must be a SELECT statement only - INSERT, UPDATE, DELETE, DROP and other modification operations are rejected for security. Supports parameterized queries using $1, $2, etc. placeholders.",
 								},
 								"params": map[string]interface{}{
 									"type":        "array",
-									"description": "Query parameters for parameterized queries (for query operation)",
+									"description": "Query parameters for parameterized queries. Used with query operation. Array of values that correspond to $1, $2, etc. placeholders in the query string. Example: [123, 'text'] for query with $1 and $2.",
 								},
 								"limit": map[string]interface{}{
 									"type":        "integer",
-									"description": "Maximum number of rows to return (default: 1000, max: 10000, for query operation)",
+									"description": "Maximum number of rows to return. Used with query operation. Default: 1000, Maximum: 10000. Automatically adds LIMIT clause if not present in query.",
+									"minimum":     1,
+									"maximum":     10000,
 								},
 							},
+							"required": []string{"type"},
 						},
 					},
 				},
@@ -151,7 +186,9 @@ func handleToolsList(msg *MCPMessage, encoder *json.Encoder) {
 		},
 	}
 
-	encoder.Encode(response)
+	if err := encoder.Encode(response); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to encode tools list response: %v\n", err)
+	}
 }
 
 func handleToolCall(msg *MCPMessage, encoder *json.Encoder) {
@@ -233,6 +270,8 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 			result, err = toolDescribeTable(params)
 		case "query":
 			result, err = toolQuery(params)
+		case "get_connection_info":
+			result, err = toolGetConnectionInfo(params)
 		default:
 			err = fmt.Errorf("unknown operation type: %s", opType)
 		}
@@ -266,16 +305,33 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 		}
 	}
 
-	// Return results in format expected by client: {"results": [...]}
+	// Convert results to JSON string for Content
+	resultsJSON, err := json.Marshal(map[string]interface{}{
+		"results": results,
+	})
+	if err != nil {
+		sendError(encoder, msg.ID, -32603, fmt.Sprintf("failed to marshal results: %v", err), nil)
+		return
+	}
+
+	// Return results in MCP ToolsCallResponse format
 	response := MCPMessage{
 		JSONRPC: "2.0",
 		ID:      msg.ID,
-		Result: map[string]interface{}{
-			"results": results,
+		Result: ToolsCallResponse{
+			Content: []Content{
+				{
+					Type: "text",
+					Text: string(resultsJSON),
+				},
+			},
+			IsError: false,
 		},
 	}
 
-	encoder.Encode(response)
+	if err := encoder.Encode(response); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to encode response: %v\n", err)
+	}
 }
 
 // optimizeParams optimizes params for response by truncating long string values (> 20 lines)
@@ -327,5 +383,7 @@ func sendError(encoder *json.Encoder, id interface{}, code int, message string, 
 			Data:    data,
 		},
 	}
-	encoder.Encode(response)
+	if err := encoder.Encode(response); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to encode error response: %v\n", err)
+	}
 }

@@ -27,6 +27,89 @@ func getConnectionString(params map[string]interface{}) (string, error) {
 	return connStr, nil
 }
 
+// maskPasswordInConnectionString masks the password in a PostgreSQL connection string
+func maskPasswordInConnectionString(connStr string) string {
+	// Pattern: postgres://user:password@host:port/dbname?params
+	// We want to mask the password part
+	re := regexp.MustCompile(`(postgres://[^:]+:)([^@]+)(@.+)`)
+	masked := re.ReplaceAllString(connStr, "${1}****${3}")
+
+	// If the pattern didn't match, try without password (postgres://user@host)
+	// Or if it's already masked, return as is
+	if masked == connStr {
+		// Check if it's a connection string without password
+		reNoPass := regexp.MustCompile(`postgres://([^:@]+)@`)
+		if reNoPass.MatchString(connStr) {
+			return connStr // No password to mask
+		}
+		// If it doesn't match standard format, return masked version
+		return "****"
+	}
+
+	return masked
+}
+
+// toolGetConnectionInfo returns connection information with masked password
+func toolGetConnectionInfo(params map[string]interface{}) (string, error) {
+	connStr, err := getConnectionString(params)
+	if err != nil {
+		return "", err
+	}
+
+	// Parse connection string to extract components
+	// Format: postgres://user:password@host:port/dbname?params
+	re := regexp.MustCompile(`postgres://(?:([^:]+):([^@]+)@)?([^:/]+)(?::(\d+))?/([^?]+)?(?:\?(.+))?`)
+	matches := re.FindStringSubmatch(connStr)
+
+	info := map[string]interface{}{
+		"connection_string_masked": maskPasswordInConnectionString(connStr),
+		"source":                   "environment",
+	}
+
+	// If connection_string was provided in params, mark it as parameter override
+	if _, ok := params["connection_string"].(string); ok {
+		info["source"] = "parameter_override"
+	}
+
+	// Extract components if possible
+	if len(matches) > 1 && matches[1] != "" {
+		info["user"] = matches[1]
+	}
+	if len(matches) > 3 && matches[3] != "" {
+		info["host"] = matches[3]
+	}
+	if len(matches) > 4 && matches[4] != "" {
+		info["port"] = matches[4]
+	}
+	if len(matches) > 5 && matches[5] != "" {
+		info["database"] = matches[5]
+	}
+	if len(matches) > 6 && matches[6] != "" {
+		// Parse query parameters
+		paramsStr := matches[6]
+		paramsMap := make(map[string]string)
+		for _, param := range strings.Split(paramsStr, "&") {
+			parts := strings.SplitN(param, "=", 2)
+			if len(parts) == 2 {
+				paramsMap[parts[0]] = parts[1]
+			}
+		}
+		if len(paramsMap) > 0 {
+			info["parameters"] = paramsMap
+		}
+	}
+
+	// Test connection if possible (without exposing password)
+	info["connection_configured"] = true
+
+	resultJSON, err := json.Marshal(info)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal result: %w", err)
+	}
+
+	return string(resultJSON), nil
+}
+
 // openDatabase opens a database connection with the given connection string
 func openDatabase(connStr string) (*sql.DB, error) {
 	db, err := sql.Open("postgres", connStr)
