@@ -159,13 +159,40 @@ Provides read-only access to guidelines from the PostgreSQL database for customi
 - Requires `GUIDELINES_DB_DSN` environment variable with PostgreSQL connection string
 - Format: `postgres://user:password@host:port/dbname?sslmode=disable`
 
+### 9. mcp-postgres
+
+Provides read-only access to PostgreSQL databases for querying data and inspecting schemas:
+
+- `list_schemas` - List all schemas in the database
+- `list_tables(schema)` - List tables in a schema with metadata
+- `describe_table(table_name, schema)` - Get detailed table schema (columns, types, constraints, indexes)
+- `query(query, params, limit)` - Execute parameterized SELECT queries
+
+**Key Features:**
+- **Read-Only Access**: Only SELECT queries allowed, all data modification operations rejected
+- **Schema Inspection**: Explore database structure without modifying data
+- **Parameterized Queries**: Support for safe parameterized queries to prevent SQL injection
+- **Flexible Configuration**: Connection string via environment variable or per-operation override
+- **Result Limiting**: Automatic result limiting for safety (default 1000 rows, max 10000)
+
+**Use Cases:**
+- **Database Exploration**: Inspect database schemas and table structures
+- **Data Querying**: Execute safe SELECT queries to retrieve data
+- **Schema Analysis**: Understand database structure for code generation
+- **Data Inspection**: Query data for debugging or analysis purposes
+
+**Configuration:**
+- Requires `POSTGRES_DB_DSN` environment variable with PostgreSQL connection string
+- Format: `postgres://user:password@host:port/dbname?sslmode=disable`
+- Can be overridden per-operation via `connection_string` parameter
+
 ## Prerequisites
 
 - Go 1.24.1 or higher
 - Git (for mcp-git server)
 - Bash (for mcp-bash server)
 - PowerShell (for mcp-powershell server) - Windows PowerShell 5.1+ or PowerShell Core 6.0+
-- PostgreSQL (for mcp-guidelines server) - Database with guidelines table
+- PostgreSQL (for mcp-guidelines and mcp-postgres servers) - Database access
 
 ## Installation
 
@@ -178,7 +205,7 @@ make mcp-servers
 ```
 
 This command will:
-1. Build all 8 MCP server executables (`mcp-filesystem`, `mcp-codebase`, `mcp-git`, `mcp-code-edit`, `mcp-bash`, `mcp-powershell`, `mcp-systeminfo`, `mcp-guidelines`)
+1. Build all 9 MCP server executables (`mcp-filesystem`, `mcp-codebase`, `mcp-git`, `mcp-code-edit`, `mcp-bash`, `mcp-powershell`, `mcp-systeminfo`, `mcp-guidelines`, `mcp-postgres`)
 2. Automatically detect the best installation directory (`~/bin`, `~/.local/bin`, or `/usr/local/bin`)
 3. Copy executables to the installation directory
 4. Set executable permissions
@@ -193,7 +220,7 @@ The Makefile provides several targets for managing MCP servers:
 - Convenience target that combines build and install
 
 **`make build-mcp-servers`** - Build only
-- Compiles all 8 MCP server executables
+- Compiles all 9 MCP server executables
 - Outputs executables to the project root directory
 - Does not install them
 
@@ -219,6 +246,7 @@ go build -o mcp-bash ./cmd/mcp-bash
 go build -o mcp-powershell ./cmd/mcp-powershell
 go build -o mcp-systeminfo ./cmd/mcp-systeminfo
 go build -o mcp-guidelines ./cmd/mcp-guidelines
+go build -o mcp-postgres ./cmd/mcp-postgres
 ```
 
 ### Installation Directory Selection
@@ -312,6 +340,18 @@ code-aria-internal_mcp/
 │       ├── audit.go
 │       ├── mcp.go
 │       └── types.go
+│   ├── mcp-guidelines/
+│   │   ├── main.go
+│   │   ├── mcp.go
+│   │   ├── database.go
+│   │   └── types.go
+│   ├── mcp-documents/
+│   │   └── ...
+│   └── mcp-postgres/
+│       ├── main.go
+│       ├── database.go
+│       ├── types.go
+│       └── README.md
 ├── Makefile
 ├── Makefile.windows
 ├── Makefile.unix
