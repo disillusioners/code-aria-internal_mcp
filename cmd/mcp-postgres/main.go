@@ -6,9 +6,14 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	// Load .env file if it exists (ignore errors if file doesn't exist)
+	_ = godotenv.Load()
+
 	scanner := bufio.NewScanner(os.Stdin)
 	encoder := json.NewEncoder(os.Stdout)
 
@@ -324,4 +329,3 @@ func sendError(encoder *json.Encoder, id interface{}, code int, message string, 
 	}
 	encoder.Encode(response)
 }
-
