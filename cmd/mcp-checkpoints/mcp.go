@@ -140,6 +140,30 @@ func handleToolsList(msg *MCPMessage, encoder *json.Encoder) {
 				"required": []string{"checkpoint_id"},
 			},
 		},
+		{
+			Name:        "apply_operations",
+			Description: "Execute multiple checkpoint operations in a single batch call",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"operations": map[string]interface{}{
+						"type":        "array",
+						"description": "List of operations to execute",
+						"items": map[string]interface{}{
+							"type":        "object",
+							"description": "Operation object with 'type' field and operation-specific parameters",
+							"properties": map[string]interface{}{
+								"type": map[string]interface{}{
+									"type":        "string",
+									"description": "Operation type: create_checkpoint, list_checkpoints, get_checkpoint, restore_checkpoint, delete_checkpoint, get_checkpoint_info",
+								},
+							},
+						},
+					},
+				},
+				"required": []string{"operations"},
+			},
+		},
 	}
 
 	response := MCPMessage{
@@ -163,6 +187,11 @@ func handleToolCall(msg *MCPMessage, encoder *json.Encoder) {
 	}
 	if err := json.Unmarshal(reqJSON, &req); err != nil {
 		sendError(encoder, msg.ID, -32602, fmt.Sprintf("failed to unmarshal params: %v", err), nil)
+		return
+	}
+
+	if req.Name == "apply_operations" {
+		handleBatchOperations(msg, encoder, req.Arguments)
 		return
 	}
 
@@ -201,6 +230,110 @@ func handleToolCall(msg *MCPMessage, encoder *json.Encoder) {
 					Text: result,
 				},
 			},
+		},
+	}
+
+	encoder.Encode(response)
+}
+
+func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[string]interface{}) {
+	operations, ok := args["operations"].([]interface{})
+	if !ok {
+		sendError(encoder, msg.ID, -32602, "operations array is required", nil)
+		return
+	}
+
+	if len(operations) == 0 {
+		sendError(encoder, msg.ID, -32602, "operations array cannot be empty", nil)
+		return
+	}
+
+	var results []map[string]interface{}
+
+	for _, op := range operations {
+		opMap, ok := op.(map[string]interface{})
+		if !ok {
+			results = append(results, map[string]interface{}{
+				"operation": "unknown",
+				"params":    map[string]interface{}{},
+				"status":    "Error",
+				"message":   "Invalid operation format",
+			})
+			continue
+		}
+
+		opType, ok := opMap["type"].(string)
+		if !ok {
+			results = append(results, map[string]interface{}{
+				"operation": "unknown",
+				"params":    map[string]interface{}{},
+				"status":    "Error",
+				"message":   "Operation type is required",
+			})
+			continue
+		}
+
+		// Extract operation-specific arguments as params
+		params := make(map[string]interface{})
+		for k, v := range opMap {
+			if k != "type" {
+				params[k] = v
+			}
+		}
+
+		// Execute operation based on type
+		var result string
+		var err error
+
+		switch opType {
+		case "create_checkpoint":
+			result, err = toolCreateCheckpoint(params)
+		case "list_checkpoints":
+			result, err = toolListCheckpoints(params)
+		case "get_checkpoint":
+			result, err = toolGetCheckpoint(params)
+		case "restore_checkpoint":
+			result, err = toolRestoreCheckpoint(params)
+		case "delete_checkpoint":
+			result, err = toolDeleteCheckpoint(params)
+		case "get_checkpoint_info":
+			result, err = toolGetCheckpointInfo(params)
+		default:
+			err = fmt.Errorf("unknown operation type: %s", opType)
+		}
+
+		if err != nil {
+			results = append(results, map[string]interface{}{
+				"operation": opType,
+				"params":    params,
+				"status":    "Error",
+				"message":   err.Error(),
+			})
+		} else {
+			// Parse JSON result if possible, otherwise use as string
+			var parsedResult interface{}
+			if jsonErr := json.Unmarshal([]byte(result), &parsedResult); jsonErr == nil {
+				// Successfully parsed JSON, use parsed result
+			} else {
+				// Not JSON, use string as-is
+				parsedResult = result
+			}
+
+			results = append(results, map[string]interface{}{
+				"operation": opType,
+				"params":    params,
+				"status":    "Success",
+				"result":    parsedResult,
+			})
+		}
+	}
+
+	// Return results in format expected by client: {"results": [...]}
+	response := MCPMessage{
+		JSONRPC: "2.0",
+		ID:      msg.ID,
+		Result: map[string]interface{}{
+			"results": results,
 		},
 	}
 
