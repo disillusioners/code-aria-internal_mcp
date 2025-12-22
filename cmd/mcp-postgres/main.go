@@ -431,33 +431,16 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 		}
 	}
 
-	// Convert results to JSON string for Content
-	resultsJSON, err := json.Marshal(map[string]interface{}{
-		"results": results,
-	})
-	if err != nil {
-		sendError(encoder, msg.ID, -32603, fmt.Sprintf("failed to marshal results: %v", err), nil)
-		return
-	}
-
-	// Return results in MCP ToolsCallResponse format
+	// Return results in format expected by client: {"results": [...]}
 	response := MCPMessage{
 		JSONRPC: "2.0",
 		ID:      msg.ID,
-		Result: ToolsCallResponse{
-			Content: []Content{
-				{
-					Type: "text",
-					Text: string(resultsJSON),
-				},
-			},
-			IsError: false,
+		Result: map[string]interface{}{
+			"results": results,
 		},
 	}
 
-	if err := encoder.Encode(response); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to encode response: %v\n", err)
-	}
+	encoder.Encode(response)
 }
 
 // optimizeParams optimizes params for response by truncating long string values (> 20 lines)
