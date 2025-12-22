@@ -3,82 +3,23 @@ package main
 import (
 	"context"
 	"encoding/json"
-
-	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
+	"fmt"
 )
 
-// DocumentServer implements the MCP tools for working with documents.
-// It delegates all data access to a DocumentRepository.
-type DocumentServer struct {
-	repo DocumentRepository
+var globalRepo DocumentRepository
+
+// setGlobalRepository sets the global repository instance for operation handlers
+func setGlobalRepository(repo DocumentRepository) {
+	globalRepo = repo
 }
 
-// NewDocumentServer constructs a new DocumentServer.
-func NewDocumentServer(repo DocumentRepository) *DocumentServer {
-	return &DocumentServer{repo: repo}
-}
+// toolGetDocuments handles the get_documents operation
+func toolGetDocuments(args map[string]interface{}) (string, error) {
+	if globalRepo == nil {
+		return "", fmt.Errorf("repository not initialized")
+	}
 
-// registerDocumentTools wires the document tools into the MCP server.
-func registerDocumentTools(s *server.MCPServer, documentServer *DocumentServer) {
-	getDocumentsTool := mcp.NewTool(
-		"get_documents",
-		mcp.WithDescription("Get documents with optional filtering by tenant_id, category, tags, or active status"),
-		mcp.WithString("tenant_id",
-			mcp.Description("Filter by tenant ID"),
-		),
-		mcp.WithString("category_id",
-			mcp.Description("Filter by category ID"),
-		),
-		mcp.WithArray("tags",
-			mcp.Description("Filter by tags (document must have all specified tags)"),
-			mcp.WithStringItems(),
-		),
-		mcp.WithBoolean("is_active",
-			mcp.Description("Filter by active status (true for active, false for inactive)"),
-		),
-		mcp.WithNumber("limit",
-			mcp.Description("Maximum number of documents to return (default: 50)"),
-			mcp.Min(1),
-			mcp.Max(100),
-		),
-	)
-
-	getDocumentContentTool := mcp.NewTool(
-		"get_document_content",
-		mcp.WithDescription("Get the full content of specific documents by their IDs"),
-		mcp.WithArray("document_ids",
-			mcp.Description("Array of document IDs to retrieve content for"),
-			mcp.WithStringItems(),
-			mcp.Required(),
-		),
-	)
-
-	searchDocumentsTool := mcp.NewTool(
-		"search_documents",
-		mcp.WithDescription("Search documents by name, description, or content text"),
-		mcp.WithString("query",
-			mcp.Description("Search query to match against document name, description, or content"),
-			mcp.Required(),
-		),
-		mcp.WithString("tenant_id",
-			mcp.Description("Filter by tenant ID"),
-		),
-		mcp.WithNumber("limit",
-			mcp.Description("Maximum number of results to return (default: 50)"),
-			mcp.Min(1),
-			mcp.Max(100),
-		),
-	)
-
-	s.AddTool(getDocumentsTool, documentServer.handleGetDocuments)
-	s.AddTool(getDocumentContentTool, documentServer.handleGetDocumentContent)
-	s.AddTool(searchDocumentsTool, documentServer.handleSearchDocuments)
-}
-
-// handleGetDocuments parses arguments from the CallToolRequest and delegates to the repository.
-func (s *DocumentServer) handleGetDocuments(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	args := request.GetArguments()
+	ctx := context.Background()
 
 	// Optional tenant_id
 	var tenantID *string
@@ -97,7 +38,14 @@ func (s *DocumentServer) handleGetDocuments(ctx context.Context, request mcp.Cal
 	}
 
 	// Optional tags
-	tags := request.GetStringSlice("tags", nil)
+	var tags []string
+	if tagsInterface, ok := args["tags"].([]interface{}); ok {
+		for _, tag := range tagsInterface {
+			if tagStr, ok := tag.(string); ok {
+				tags = append(tags, tagStr)
+			}
+		}
+	}
 
 	// Optional is_active with tri-state (unset vs true/false)
 	var isActive *bool
@@ -118,17 +66,21 @@ func (s *DocumentServer) handleGetDocuments(ctx context.Context, request mcp.Cal
 	}
 
 	// Limit with clamping
-	limit := request.GetInt("limit", 50)
-	if limit < 1 {
-		limit = 1
-	} else if limit > 100 {
-		limit = 100
+	limit := 50
+	if lim, ok := args["limit"].(float64); ok {
+		limit = int(lim)
+		if limit > 100 {
+			limit = 100
+		}
+		if limit < 1 {
+			limit = 1
+		}
 	}
 
 	// Delegate to repository
-	documents, err := s.repo.GetDocuments(ctx, tenantID, categoryID, tags, isActive, limit)
+	documents, err := globalRepo.GetDocuments(ctx, tenantID, categoryID, tags, isActive, limit)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return "", fmt.Errorf("failed to get documents: %w", err)
 	}
 
 	result := map[string]interface{}{
@@ -137,21 +89,46 @@ func (s *DocumentServer) handleGetDocuments(ctx context.Context, request mcp.Cal
 		"limit":     limit,
 	}
 
-	resultJSON, _ := json.Marshal(result)
-	return mcp.NewToolResultText(string(resultJSON)), nil
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal result: %w", err)
+	}
+
+	return string(resultJSON), nil
 }
 
-// handleGetDocumentContent gets full document content for the given IDs.
-func (s *DocumentServer) handleGetDocumentContent(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	documentIDs := request.GetStringSlice("document_ids", nil)
+// toolGetDocumentContent handles the get_document_content operation
+func toolGetDocumentContent(args map[string]interface{}) (string, error) {
+	if globalRepo == nil {
+		return "", fmt.Errorf("repository not initialized")
+	}
+
+	ctx := context.Background()
+
+	documentIDsInterface, ok := args["document_ids"].([]interface{})
+	if !ok {
+		return "", fmt.Errorf("document_ids array is required")
+	}
+
+	if len(documentIDsInterface) == 0 {
+		return "[]", nil
+	}
+
+	var documentIDs []string
+	for _, id := range documentIDsInterface {
+		if idStr, ok := id.(string); ok {
+			documentIDs = append(documentIDs, idStr)
+		}
+	}
+
 	if len(documentIDs) == 0 {
-		return mcp.NewToolResultError("at least one document ID is required"), nil
+		return "", fmt.Errorf("document_ids must contain valid string IDs")
 	}
 
 	// Delegate to repository
-	documents, err := s.repo.GetDocumentContent(ctx, documentIDs)
+	documents, err := globalRepo.GetDocumentContent(ctx, documentIDs)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return "", fmt.Errorf("failed to get document content: %w", err)
 	}
 
 	result := map[string]interface{}{
@@ -159,18 +136,26 @@ func (s *DocumentServer) handleGetDocumentContent(ctx context.Context, request m
 		"count":     len(documents),
 	}
 
-	resultJSON, _ := json.Marshal(result)
-	return mcp.NewToolResultText(string(resultJSON)), nil
-}
-
-// handleSearchDocuments searches documents by query and optional tenant.
-func (s *DocumentServer) handleSearchDocuments(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	query, err := request.RequireString("query")
-	if err != nil || query == "" {
-		return mcp.NewToolResultError("query is required and must be a non-empty string"), nil
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal result: %w", err)
 	}
 
-	args := request.GetArguments()
+	return string(resultJSON), nil
+}
+
+// toolSearchDocuments handles the search_documents operation
+func toolSearchDocuments(args map[string]interface{}) (string, error) {
+	if globalRepo == nil {
+		return "", fmt.Errorf("repository not initialized")
+	}
+
+	ctx := context.Background()
+
+	query, ok := args["query"].(string)
+	if !ok || query == "" {
+		return "", fmt.Errorf("query is required and must be a non-empty string")
+	}
 
 	var tenantID *string
 	if v, ok := args["tenant_id"]; ok {
@@ -179,17 +164,21 @@ func (s *DocumentServer) handleSearchDocuments(ctx context.Context, request mcp.
 		}
 	}
 
-	limit := request.GetInt("limit", 50)
-	if limit < 1 {
-		limit = 1
-	} else if limit > 100 {
-		limit = 100
+	limit := 50
+	if lim, ok := args["limit"].(float64); ok {
+		limit = int(lim)
+		if limit > 100 {
+			limit = 100
+		}
+		if limit < 1 {
+			limit = 1
+		}
 	}
 
 	// Delegate to repository
-	documents, err := s.repo.SearchDocuments(ctx, query, tenantID, limit)
+	documents, err := globalRepo.SearchDocuments(ctx, query, tenantID, limit)
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return "", fmt.Errorf("failed to search documents: %w", err)
 	}
 
 	result := map[string]interface{}{
@@ -199,6 +188,10 @@ func (s *DocumentServer) handleSearchDocuments(ctx context.Context, request mcp.
 		"limit":     limit,
 	}
 
-	resultJSON, _ := json.Marshal(result)
-	return mcp.NewToolResultText(string(resultJSON)), nil
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal result: %w", err)
+	}
+
+	return string(resultJSON), nil
 }

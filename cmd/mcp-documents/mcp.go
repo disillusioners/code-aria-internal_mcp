@@ -26,7 +26,7 @@ func handleInitialize(scanner *bufio.Scanner, encoder *json.Encoder) error {
 				"tools": map[string]interface{}{},
 			},
 			ServerInfo: ServerInfo{
-				Name:    "mcp-guidelines",
+				Name:    "mcp-documents",
 				Version: "1.0.0",
 			},
 		},
@@ -73,7 +73,7 @@ func handleToolsList(msg *MCPMessage, encoder *json.Encoder) {
 							"properties": map[string]interface{}{
 								"type": map[string]interface{}{
 									"type":        "string",
-									"description": "Operation type: get_guidelines, get_guideline_content, search_guidelines",
+									"description": "Operation type: get_documents, get_document_content, search_documents",
 								},
 							},
 						},
@@ -168,12 +168,12 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 		var err error
 
 		switch opType {
-		case "get_guidelines":
-			result, err = toolGetGuidelines(params)
-		case "get_guideline_content":
-			result, err = toolGetGuidelineContent(params)
-		case "search_guidelines":
-			result, err = toolSearchGuidelines(params)
+		case "get_documents":
+			result, err = toolGetDocuments(params)
+		case "get_document_content":
+			result, err = toolGetDocumentContent(params)
+		case "search_documents":
+			result, err = toolSearchDocuments(params)
 		default:
 			err = fmt.Errorf("unknown operation type: %s", opType)
 		}
@@ -229,12 +229,4 @@ func sendError(encoder *json.Encoder, id interface{}, code int, message string, 
 	}
 	encoder.Encode(response)
 }
-
-
-
-
-
-
-
-
 
