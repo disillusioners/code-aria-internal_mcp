@@ -38,6 +38,8 @@ install-mcp-servers: build-mcp-servers
 		exit 1; \
 	fi; \
 	echo "Installing to $$INSTALL_DIR"; \
+	echo "Removing existing MCP server executables from $$INSTALL_DIR..."; \
+	rm -f "$$INSTALL_DIR/mcp-filesystem" "$$INSTALL_DIR/mcp-codebase" "$$INSTALL_DIR/mcp-git" "$$INSTALL_DIR/mcp-code-edit" "$$INSTALL_DIR/mcp-bash" "$$INSTALL_DIR/mcp-powershell" "$$INSTALL_DIR/mcp-systeminfo" "$$INSTALL_DIR/mcp-checkpoints" "$$INSTALL_DIR/mcp-lang-go" "$$INSTALL_DIR/mcp-guidelines" "$$INSTALL_DIR/mcp-documents" "$$INSTALL_DIR/mcp-postgres"; \
 	cp mcp-filesystem mcp-codebase mcp-git mcp-code-edit mcp-bash mcp-powershell mcp-systeminfo mcp-checkpoints mcp-lang-go mcp-guidelines mcp-documents mcp-postgres "$$INSTALL_DIR/"; \
 	chmod +x "$$INSTALL_DIR/mcp-filesystem" "$$INSTALL_DIR/mcp-codebase" "$$INSTALL_DIR/mcp-git" "$$INSTALL_DIR/mcp-code-edit" "$$INSTALL_DIR/mcp-bash" "$$INSTALL_DIR/mcp-powershell" "$$INSTALL_DIR/mcp-systeminfo" "$$INSTALL_DIR/mcp-checkpoints" "$$INSTALL_DIR/mcp-lang-go" "$$INSTALL_DIR/mcp-guidelines" "$$INSTALL_DIR/mcp-documents" "$$INSTALL_DIR/mcp-postgres"; \
 	echo "MCP servers installed successfully to $$INSTALL_DIR"; \
