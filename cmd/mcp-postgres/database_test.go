@@ -1,28 +1,57 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"os"
 	"regexp"
 	"strings"
 	"testing"
+
+	_ "github.com/lib/pq"
 )
 
-// getTestConnectionString returns the connection string from environment or skips the test
-func getTestConnectionString(t *testing.T) string {
+// setupTestDB initializes the master database connection and sets up the test environment
+func setupTestDB(t *testing.T) {
 	connStr := os.Getenv("POSTGRES_DB_DSN")
 	if connStr == "" {
 		t.Skip("POSTGRES_DB_DSN environment variable not set, skipping database tests")
 	}
-	return connStr
+
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		t.Fatalf("Failed to open master database: %v", err)
+	}
+
+	if err := db.Ping(); err != nil {
+		db.Close()
+		t.Fatalf("Failed to ping master database: %v", err)
+	}
+
+	masterDB = db
+
+	// Ensure mcp_connections table exists
+	if err := ensureMCPConnectionsTable(); err != nil {
+		t.Fatalf("Failed to ensure mcp_connections table: %v", err)
+	}
+
+	// Initialize master connection
+	if err := initMasterConnection(); err != nil {
+		t.Fatalf("Failed to initialize master connection: %v", err)
+	}
+}
+
+// getTestConnectionName returns "master" as the default test connection name
+func getTestConnectionName() string {
+	return "master"
 }
 
 // TestToolListSchemas tests the list_schemas operation
 func TestToolListSchemas(t *testing.T) {
-	connStr := getTestConnectionString(t)
+	setupTestDB(t)
 
 	params := map[string]interface{}{
-		"connection_string": connStr,
+		"connection_name": getTestConnectionName(),
 	}
 
 	result, err := toolListSchemas(params)
@@ -58,7 +87,7 @@ func TestToolListSchemas(t *testing.T) {
 
 // TestToolListTables tests the list_tables operation
 func TestToolListTables(t *testing.T) {
-	connStr := getTestConnectionString(t)
+	setupTestDB(t)
 
 	tests := []struct {
 		name   string
@@ -67,14 +96,14 @@ func TestToolListTables(t *testing.T) {
 		{
 			name: "List tables in public schema",
 			params: map[string]interface{}{
-				"connection_string": connStr,
-				"schema":            "public",
+				"connection_name": getTestConnectionName(),
+				"schema":          "public",
 			},
 		},
 		{
 			name: "List tables with default schema",
 			params: map[string]interface{}{
-				"connection_string": connStr,
+				"connection_name": getTestConnectionName(),
 			},
 		},
 	}
@@ -112,12 +141,12 @@ func TestToolListTables(t *testing.T) {
 
 // TestToolDescribeTable tests the describe_table operation
 func TestToolDescribeTable(t *testing.T) {
-	connStr := getTestConnectionString(t)
+	setupTestDB(t)
 
 	// First, get a list of tables to test with
 	params := map[string]interface{}{
-		"connection_string": connStr,
-		"schema":            "public",
+		"connection_name": getTestConnectionName(),
+		"schema":          "public",
 	}
 
 	tablesResult, err := toolListTables(params)
@@ -140,9 +169,9 @@ func TestToolDescribeTable(t *testing.T) {
 	schema := firstTable["schema"].(string)
 
 	describeParams := map[string]interface{}{
-		"connection_string": connStr,
-		"table_name":       tableName,
-		"schema":           schema,
+		"connection_name": getTestConnectionName(),
+		"table_name":     tableName,
+		"schema":         schema,
 	}
 
 	result, err := toolDescribeTable(describeParams)
@@ -197,7 +226,7 @@ func TestToolDescribeTable(t *testing.T) {
 
 // TestToolQuery tests the query operation
 func TestToolQuery(t *testing.T) {
-	connStr := getTestConnectionString(t)
+	setupTestDB(t)
 
 	tests := []struct {
 		name   string
@@ -207,61 +236,61 @@ func TestToolQuery(t *testing.T) {
 		{
 			name: "Simple SELECT query",
 			params: map[string]interface{}{
-				"connection_string": connStr,
-				"query":             "SELECT 1 as test_value",
-				"limit":              10.0,
+				"connection_name": getTestConnectionName(),
+				"query":          "SELECT 1 as test_value",
+				"limit":          10.0,
 			},
 			valid: true,
 		},
 		{
 			name: "SELECT query with parameters",
 			params: map[string]interface{}{
-				"connection_string": connStr,
-				"query":             "SELECT $1::text as value",
-				"params":            []interface{}{"test"},
-				"limit":              10.0,
+				"connection_name": getTestConnectionName(),
+				"query":          "SELECT $1::text as value",
+				"params":         []interface{}{"test"},
+				"limit":          10.0,
 			},
 			valid: true,
 		},
 		{
 			name: "SELECT query with multiple parameters",
 			params: map[string]interface{}{
-				"connection_string": connStr,
-				"query":             "SELECT $1::int as num, $2::text as text",
-				"params":            []interface{}{1, "test"},
-				"limit":              10.0,
+				"connection_name": getTestConnectionName(),
+				"query":          "SELECT $1::int as num, $2::text as text",
+				"params":         []interface{}{1, "test"},
+				"limit":          10.0,
 			},
 			valid: true,
 		},
 		{
 			name: "Query with limit",
 			params: map[string]interface{}{
-				"connection_string": connStr,
-				"query":             "SELECT generate_series(1, 100) as num",
-				"limit":              5.0,
+				"connection_name": getTestConnectionName(),
+				"query":          "SELECT generate_series(1, 100) as num",
+				"limit":          5.0,
 			},
 			valid: true,
 		},
 		{
 			name: "Missing query parameter",
 			params: map[string]interface{}{
-				"connection_string": connStr,
+				"connection_name": getTestConnectionName(),
 			},
 			valid: false,
 		},
 		{
 			name: "Non-SELECT query (should fail)",
 			params: map[string]interface{}{
-				"connection_string": connStr,
-				"query":             "INSERT INTO test VALUES (1)",
+				"connection_name": getTestConnectionName(),
+				"query":          "INSERT INTO test VALUES (1)",
 			},
 			valid: false,
 		},
 		{
 			name: "Query with dangerous keyword (should fail)",
 			params: map[string]interface{}{
-				"connection_string": connStr,
-				"query":             "SELECT * FROM test; DROP TABLE test;",
+				"connection_name": getTestConnectionName(),
+				"query":          "SELECT * FROM test; DROP TABLE test;",
 			},
 			valid: false,
 		},
@@ -304,12 +333,12 @@ func TestToolQuery(t *testing.T) {
 
 // TestToolQueryWithRealTable tests querying a real table if available
 func TestToolQueryWithRealTable(t *testing.T) {
-	connStr := getTestConnectionString(t)
+	setupTestDB(t)
 
 	// First, try to find a table
 	params := map[string]interface{}{
-		"connection_string": connStr,
-		"schema":            "public",
+		"connection_name": getTestConnectionName(),
+		"schema":          "public",
 	}
 
 	tablesResult, err := toolListTables(params)
@@ -332,9 +361,9 @@ func TestToolQueryWithRealTable(t *testing.T) {
 	schema := firstTable["schema"].(string)
 
 	queryParams := map[string]interface{}{
-		"connection_string": connStr,
-		"query":             "SELECT * FROM " + schema + "." + tableName + " LIMIT 5",
-		"limit":              5.0,
+		"connection_name": getTestConnectionName(),
+		"query":          "SELECT * FROM " + schema + "." + tableName + " LIMIT 5",
+		"limit":          5.0,
 	}
 
 	result, err := toolQuery(queryParams)
@@ -350,58 +379,38 @@ func TestToolQueryWithRealTable(t *testing.T) {
 	t.Logf("Query returned %d rows from %s.%s", len(rows), schema, tableName)
 }
 
-// TestGetConnectionString tests connection string retrieval
+// TestGetConnectionString tests connection string retrieval by name
 func TestGetConnectionString(t *testing.T) {
-	// Save original env var
-	originalDSN := os.Getenv("POSTGRES_DB_DSN")
-	defer os.Setenv("POSTGRES_DB_DSN", originalDSN)
+	setupTestDB(t)
 
 	tests := []struct {
-		name           string
-		envVar         string
-		params         map[string]interface{}
-		wantErr        bool
-		expectedSource string
+		name    string
+		params  map[string]interface{}
+		wantErr bool
 	}{
 		{
-			name:   "From environment variable",
-			envVar: "postgres://test@localhost/test",
-			params: map[string]interface{}{},
-			wantErr: false,
-		},
-		{
-			name:   "From parameter override",
-			envVar: "postgres://env@localhost/env",
+			name: "Valid connection name",
 			params: map[string]interface{}{
-				"connection_string": "postgres://param@localhost/param",
+				"connection_name": "master",
 			},
 			wantErr: false,
 		},
 		{
-			name:    "Missing both",
-			envVar:  "",
-			params:  map[string]interface{}{},
+			name: "Missing connection_name",
+			params: map[string]interface{}{},
 			wantErr: true,
 		},
 		{
-			name:   "Empty parameter string",
-			envVar:  "postgres://test@localhost/test",
+			name: "Invalid connection name",
 			params: map[string]interface{}{
-				"connection_string": "",
+				"connection_name": "nonexistent",
 			},
-			wantErr: false, // Should fall back to env var
+			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Set environment variable
-			if tt.envVar != "" {
-				os.Setenv("POSTGRES_DB_DSN", tt.envVar)
-			} else {
-				os.Unsetenv("POSTGRES_DB_DSN")
-			}
-
 			connStr, err := getConnectionString(tt.params)
 
 			if tt.wantErr {
@@ -414,17 +423,6 @@ func TestGetConnectionString(t *testing.T) {
 				}
 				if connStr == "" {
 					t.Error("Expected connection string, got empty")
-				}
-
-				// Verify parameter override takes precedence
-				if paramConn, ok := tt.params["connection_string"].(string); ok && paramConn != "" {
-					if connStr != paramConn {
-						t.Errorf("Expected connection string from parameter, got %s", connStr)
-					}
-				} else {
-					if connStr != tt.envVar {
-						t.Errorf("Expected connection string from env var, got %s", connStr)
-					}
 				}
 			}
 		})
@@ -516,22 +514,16 @@ func TestValidateSelectQuery(t *testing.T) {
 
 // TestToolGetConnectionInfo tests the get_connection_info operation
 func TestToolGetConnectionInfo(t *testing.T) {
-	connStr := getTestConnectionString(t)
+	setupTestDB(t)
 
 	tests := []struct {
 		name   string
 		params map[string]interface{}
 	}{
 		{
-			name: "Get connection info from environment",
+			name: "Get connection info for master",
 			params: map[string]interface{}{
-				"connection_string": connStr,
-			},
-		},
-		{
-			name: "Get connection info with parameter override",
-			params: map[string]interface{}{
-				"connection_string": "postgres://testuser:testpass@localhost:5432/testdb?sslmode=disable",
+				"connection_name": "master",
 			},
 		},
 	}
@@ -564,24 +556,18 @@ func TestToolGetConnectionInfo(t *testing.T) {
 				t.Fatal("connection_string_masked is not a string")
 			}
 
-			if strings.Contains(maskedStr, "testpass") {
-				t.Error("Password should be masked in connection string")
-			}
-
 			if !strings.Contains(maskedStr, "****") {
 				t.Logf("Warning: Connection string doesn't contain masked password pattern. Got: %s", maskedStr)
 			}
 
-			// Verify source
-			source, ok := info["source"].(string)
+			// Verify connection name
+			connName, ok := info["name"].(string)
 			if !ok {
-				t.Fatal("source is not a string")
+				t.Fatal("name is not a string")
 			}
 
-			if tt.params["connection_string"] != nil {
-				if source != "parameter_override" {
-					t.Errorf("Expected source 'parameter_override', got '%s'", source)
-				}
+			if connName != "master" {
+				t.Errorf("Expected connection name 'master', got '%s'", connName)
 			}
 
 			t.Logf("Connection info: %+v", info)
@@ -652,24 +638,24 @@ func TestMaskPasswordInConnectionString(t *testing.T) {
 
 // TestBatchOperations tests multiple operations in sequence
 func TestBatchOperations(t *testing.T) {
-	connStr := getTestConnectionString(t)
+	setupTestDB(t)
 
 	// Test that we can run multiple operations
 	operations := []map[string]interface{}{
 		{
-			"type":             "list_schemas",
-			"connection_string": connStr,
+			"type":           "list_schemas",
+			"connection_name": getTestConnectionName(),
 		},
 		{
-			"type":             "list_tables",
-			"schema":           "public",
-			"connection_string": connStr,
+			"type":           "list_tables",
+			"schema":         "public",
+			"connection_name": getTestConnectionName(),
 		},
 		{
-			"type":             "query",
-			"query":            "SELECT version() as pg_version",
-			"connection_string": connStr,
-			"limit":             1.0,
+			"type":           "query",
+			"query":          "SELECT version() as pg_version",
+			"connection_name": getTestConnectionName(),
+			"limit":          1.0,
 		},
 	}
 
@@ -703,6 +689,221 @@ func TestBatchOperations(t *testing.T) {
 				t.Errorf("Operation %d (%s) returned invalid JSON: %v", i, op["type"], err)
 			}
 		})
+	}
+}
+
+// TestToolCreateConnection tests the create_connection operation
+func TestToolCreateConnection(t *testing.T) {
+	setupTestDB(t)
+
+	// Clean up test connection if it exists
+	_, _ = masterDB.Exec("DELETE FROM mcp_connections WHERE name = 'test_conn'")
+
+	params := map[string]interface{}{
+		"name":     "test_conn",
+		"host":     "localhost",
+		"port":     5432.0,
+		"database": "testdb",
+		"user":     "testuser",
+		"password": "testpass",
+		"sslmode":  "disable",
+	}
+
+	result, err := toolCreateConnection(params)
+	if err != nil {
+		t.Fatalf("toolCreateConnection() error = %v", err)
+	}
+
+	// Parse result
+	var conn ConnectionConfig
+	if err := json.Unmarshal([]byte(result), &conn); err != nil {
+		t.Fatalf("Failed to parse result: %v", err)
+	}
+
+	// Verify connection was created
+	if conn.Name != "test_conn" {
+		t.Errorf("Expected name 'test_conn', got '%s'", conn.Name)
+	}
+	if conn.Host != "localhost" {
+		t.Errorf("Expected host 'localhost', got '%s'", conn.Host)
+	}
+	if conn.Password != "" {
+		t.Error("Password should be masked in response")
+	}
+
+	// Clean up
+	_, _ = masterDB.Exec("DELETE FROM mcp_connections WHERE name = 'test_conn'")
+}
+
+// TestToolListConnections tests the list_connections operation
+func TestToolListConnections(t *testing.T) {
+	setupTestDB(t)
+
+	result, err := toolListConnections(nil)
+	if err != nil {
+		t.Fatalf("toolListConnections() error = %v", err)
+	}
+
+	// Parse result
+	var connections []ConnectionConfig
+	if err := json.Unmarshal([]byte(result), &connections); err != nil {
+		t.Fatalf("Failed to parse result: %v", err)
+	}
+
+	// Verify we have at least the master connection
+	if len(connections) == 0 {
+		t.Error("Expected at least one connection (master), got none")
+	}
+
+	// Verify master connection exists
+	foundMaster := false
+	for _, conn := range connections {
+		if conn.Name == "master" {
+			foundMaster = true
+			if conn.Password != "" {
+				t.Error("Password should be masked in list response")
+			}
+		}
+	}
+
+	if !foundMaster {
+		t.Error("Expected to find 'master' connection in list")
+	}
+}
+
+// TestToolGetConnection tests the get_connection operation
+func TestToolGetConnection(t *testing.T) {
+	setupTestDB(t)
+
+	params := map[string]interface{}{
+		"name": "master",
+	}
+
+	result, err := toolGetConnection(params)
+	if err != nil {
+		t.Fatalf("toolGetConnection() error = %v", err)
+	}
+
+	// Parse result
+	var conn ConnectionConfig
+	if err := json.Unmarshal([]byte(result), &conn); err != nil {
+		t.Fatalf("Failed to parse result: %v", err)
+	}
+
+	// Verify connection details
+	if conn.Name != "master" {
+		t.Errorf("Expected name 'master', got '%s'", conn.Name)
+	}
+	if conn.Password != "" {
+		t.Error("Password should be masked in response")
+	}
+}
+
+// TestToolUpdateConnection tests the update_connection operation
+func TestToolUpdateConnection(t *testing.T) {
+	setupTestDB(t)
+
+	// Create a test connection first
+	testParams := map[string]interface{}{
+		"name":     "test_update",
+		"host":     "localhost",
+		"port":     5432.0,
+		"database": "testdb",
+		"user":     "testuser",
+		"password": "testpass",
+	}
+	_, _ = toolCreateConnection(testParams)
+	defer func() {
+		_, _ = masterDB.Exec("DELETE FROM mcp_connections WHERE name = 'test_update'")
+	}()
+
+	// Update the connection
+	updateParams := map[string]interface{}{
+		"name":        "test_update",
+		"description": "Updated description",
+		"sslmode":     "require",
+	}
+
+	result, err := toolUpdateConnection(updateParams)
+	if err != nil {
+		t.Fatalf("toolUpdateConnection() error = %v", err)
+	}
+
+	// Parse result
+	var conn ConnectionConfig
+	if err := json.Unmarshal([]byte(result), &conn); err != nil {
+		t.Fatalf("Failed to parse result: %v", err)
+	}
+
+	// Verify update
+	if conn.Description != "Updated description" {
+		t.Errorf("Expected description 'Updated description', got '%s'", conn.Description)
+	}
+	if conn.SSLMode != "require" {
+		t.Errorf("Expected sslmode 'require', got '%s'", conn.SSLMode)
+	}
+	if conn.Password != "" {
+		t.Error("Password should be masked in response")
+	}
+}
+
+// TestToolDeleteConnection tests the delete_connection operation
+func TestToolDeleteConnection(t *testing.T) {
+	setupTestDB(t)
+
+	// Create a test connection first
+	testParams := map[string]interface{}{
+		"name":     "test_delete",
+		"host":     "localhost",
+		"port":     5432.0,
+		"database": "testdb",
+		"user":     "testuser",
+		"password": "testpass",
+	}
+	_, _ = toolCreateConnection(testParams)
+
+	// Delete the connection
+	deleteParams := map[string]interface{}{
+		"name": "test_delete",
+	}
+
+	result, err := toolDeleteConnection(deleteParams)
+	if err != nil {
+		t.Fatalf("toolDeleteConnection() error = %v", err)
+	}
+
+	// Verify deletion
+	var response map[string]interface{}
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		t.Fatalf("Failed to parse result: %v", err)
+	}
+
+	if message, ok := response["message"].(string); !ok || !strings.Contains(message, "deleted successfully") {
+		t.Errorf("Expected success message, got: %v", response)
+	}
+
+	// Verify connection no longer exists
+	_, err = toolGetConnection(deleteParams)
+	if err == nil {
+		t.Error("Expected error when getting deleted connection, got none")
+	}
+}
+
+// TestToolDeleteMasterConnection tests that master connection cannot be deleted
+func TestToolDeleteMasterConnection(t *testing.T) {
+	setupTestDB(t)
+
+	deleteParams := map[string]interface{}{
+		"name": "master",
+	}
+
+	_, err := toolDeleteConnection(deleteParams)
+	if err == nil {
+		t.Error("Expected error when trying to delete master connection, got none")
+	}
+
+	if !strings.Contains(err.Error(), "cannot delete") {
+		t.Errorf("Expected error about not being able to delete master, got: %v", err)
 	}
 }
 

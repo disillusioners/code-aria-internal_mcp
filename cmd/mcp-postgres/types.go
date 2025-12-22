@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"time"
 )
 
 // MCP protocol types
@@ -54,4 +55,19 @@ type ToolsCallResponse struct {
 type Content struct {
 	Type string `json:"type"`
 	Text string `json:"text,omitempty"`
+}
+
+// ConnectionConfig represents a database connection configuration
+type ConnectionConfig struct {
+	ID          int       `json:"id"`
+	Name        string    `json:"name"`
+	Host        string    `json:"host"`
+	Port        int       `json:"port"`
+	Database    string    `json:"database"`
+	User        string    `json:"user"`
+	Password    string    `json:"password,omitempty"` // Omitted in responses for security
+	SSLMode     string    `json:"sslmode"`
+	Description string    `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }

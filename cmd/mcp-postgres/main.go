@@ -2,17 +2,25 @@ package main
 
 import (
 	"bufio"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 func main() {
 	// Load .env file if it exists (ignore errors if file doesn't exist)
 	_ = godotenv.Load()
+
+	// Initialize master database connection
+	if err := initMasterDB(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to initialize master database: %v\n", err)
+		os.Exit(1)
+	}
 
 	scanner := bufio.NewScanner(os.Stdin)
 	encoder := json.NewEncoder(os.Stdout)
@@ -39,6 +47,38 @@ func main() {
 			handleRequest(&msg, encoder)
 		}
 	}
+}
+
+// initMasterDB initializes the master database connection and sets up the mcp_connections table
+func initMasterDB() error {
+	masterDSN := os.Getenv("POSTGRES_DB_DSN")
+	if masterDSN == "" {
+		return fmt.Errorf("POSTGRES_DB_DSN environment variable is required")
+	}
+
+	db, err := sql.Open("postgres", masterDSN)
+	if err != nil {
+		return fmt.Errorf("failed to open master database: %w", err)
+	}
+
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return fmt.Errorf("failed to ping master database: %w", err)
+	}
+
+	masterDB = db
+
+	// Ensure mcp_connections table exists
+	if err := ensureMCPConnectionsTable(); err != nil {
+		return fmt.Errorf("failed to ensure mcp_connections table: %w", err)
+	}
+
+	// Initialize master connection in table
+	if err := initMasterConnection(); err != nil {
+		return fmt.Errorf("failed to initialize master connection: %w", err)
+	}
+
+	return nil
 }
 
 func handleInitialize(scanner *bufio.Scanner, encoder *json.Encoder) error {
@@ -95,56 +135,88 @@ func handleToolsList(msg *MCPMessage, encoder *json.Encoder) {
 	tools := []Tool{
 		{
 			Name: "apply_operations",
-			Description: `Execute multiple PostgreSQL read operations in a single batch call. This tool provides read-only access to PostgreSQL databases.
+			Description: `Execute multiple PostgreSQL operations in a single batch call. This tool provides read-only access to PostgreSQL databases and connection management.
 
 Available operations:
+
+Database Operations:
 1. list_schemas - List all schemas in the database (excluding system schemas like pg_catalog, information_schema)
-   Parameters: connection_string (optional, overrides POSTGRES_DB_DSN env var)
+   Parameters: connection_name (optional, defaults to 'master') - Name of the connection to use
    Returns: Array of schema names
 
 2. list_tables - List all tables in a specified schema with metadata (schema name, table name, table type)
-   Parameters: schema (optional, defaults to 'public'), connection_string (optional)
+   Parameters: connection_name (optional, defaults to 'master'), schema (optional, defaults to 'public')
    Returns: Array of table objects with schema, table_name, and table_type fields
 
 3. describe_table - Get detailed table schema information including columns, data types, constraints, indexes, and metadata
-   Parameters: table_name (required), schema (optional, defaults to 'public'), connection_string (optional)
+   Parameters: connection_name (optional, defaults to 'master'), table_name (required), schema (optional, defaults to 'public')
    Returns: Table schema object with columns array containing name, type, nullable, default, constraints, indexes, and position
 
 4. query - Execute a SELECT query to retrieve data from the database
-   Parameters: query (required, must be a SELECT statement), params (optional array for parameterized queries), limit (optional, default 1000, max 10000), connection_string (optional)
+   Parameters: connection_name (optional, defaults to 'master'), query (required, must be a SELECT statement), params (optional array for parameterized queries), limit (optional, default 1000, max 10000)
    Returns: Array of result objects (one per row) with column names as keys
    Security: Only SELECT queries are allowed. INSERT, UPDATE, DELETE, DROP, and other modification operations are rejected.
 
 5. get_connection_info - Get connection information including host, port, database, user (password is masked for security)
-   Parameters: connection_string (optional, overrides POSTGRES_DB_DSN env var)
-   Returns: Connection info object with masked connection string, source (environment/parameter), and parsed components (host, port, database, user, parameters)
+   Parameters: connection_name (optional, defaults to 'master')
+   Returns: Connection info object with masked connection string and parsed components (host, port, database, user, sslmode, description)
 
-Connection: The connection string can be provided via POSTGRES_DB_DSN environment variable or per-operation via connection_string parameter. Format: postgres://user:password@host:port/dbname?sslmode=disable
+Connection Management Operations:
+6. create_connection - Create a new database connection configuration
+   Parameters: name (required), host (required), port (optional, default 5432), database (required), user (required), password (required), sslmode (optional, default 'disable'), description (optional)
+   Returns: Created connection object (password masked)
+
+7. list_connections - List all configured connections (passwords are masked)
+   Parameters: None
+   Returns: Array of connection objects (passwords masked)
+
+8. get_connection - Get a connection configuration by name (password is masked)
+   Parameters: name (required)
+   Returns: Connection object (password masked)
+
+9. update_connection - Update a connection configuration
+   Parameters: name (required), other fields optional (host, port, database, user, password, sslmode, description)
+   Returns: Updated connection object (password masked)
+
+10. delete_connection - Delete a connection configuration (cannot delete 'master' connection)
+    Parameters: name (required)
+    Returns: Success confirmation
+
+11. rename_connection - Rename a connection (cannot rename 'master' connection)
+    Parameters: old_name (required), new_name (required)
+    Returns: Renamed connection object (password masked)
+
+Connection Management: Connections are stored in the master database (configured via POSTGRES_DB_DSN). The master connection is automatically created on startup with the name 'master'. Use connection management operations to add, view, update, or remove connections. For database operations, if connection_name is not provided, it defaults to 'master'.
 
 Examples:
-- List schemas: {"type": "list_schemas"}
-- List tables in public schema: {"type": "list_tables", "schema": "public"}
+- List schemas (uses master by default): {"type": "list_schemas"}
+- List schemas with explicit connection: {"type": "list_schemas", "connection_name": "master"}
+- List tables: {"type": "list_tables", "schema": "public"}
 - Describe a table: {"type": "describe_table", "table_name": "users", "schema": "public"}
 - Query with parameters: {"type": "query", "query": "SELECT * FROM users WHERE id = $1", "params": [123], "limit": 10}
-- Get connection info: {"type": "get_connection_info"}`,
+- Query different database: {"type": "query", "connection_name": "prod_db", "query": "SELECT * FROM products LIMIT 10"}
+- Create connection: {"type": "create_connection", "name": "prod_db", "host": "prod.example.com", "database": "mydb", "user": "myuser", "password": "mypass"}
+- List connections: {"type": "list_connections"}
+- Get connection: {"type": "get_connection", "name": "prod_db"}
+- Rename connection: {"type": "rename_connection", "old_name": "prod_db", "new_name": "production_db"}`,
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"operations": map[string]interface{}{
 						"type":        "array",
-						"description": "List of PostgreSQL read operations to execute. Each operation is an object with a 'type' field and operation-specific parameters.",
+						"description": "List of PostgreSQL operations to execute. Each operation is an object with a 'type' field and operation-specific parameters.",
 						"items": map[string]interface{}{
 							"type":        "object",
-							"description": "Operation object. Must include 'type' field. Available types: list_schemas, list_tables, describe_table, query",
+							"description": "Operation object. Must include 'type' field. Available types: list_schemas, list_tables, describe_table, query, get_connection_info, create_connection, list_connections, get_connection, update_connection, delete_connection, rename_connection",
 							"properties": map[string]interface{}{
 								"type": map[string]interface{}{
 									"type":        "string",
-									"enum":        []string{"list_schemas", "list_tables", "describe_table", "query", "get_connection_info"},
-									"description": "Operation type. 'list_schemas': List all schemas. 'list_tables': List tables in a schema. 'describe_table': Get table schema details. 'query': Execute SELECT query. 'get_connection_info': Get connection information with masked password.",
+									"enum":        []string{"list_schemas", "list_tables", "describe_table", "query", "get_connection_info", "create_connection", "list_connections", "get_connection", "update_connection", "delete_connection", "rename_connection"},
+									"description": "Operation type. Database operations: 'list_schemas', 'list_tables', 'describe_table', 'query', 'get_connection_info'. Connection management: 'create_connection', 'list_connections', 'get_connection', 'update_connection', 'delete_connection', 'rename_connection'.",
 								},
-								"connection_string": map[string]interface{}{
+								"connection_name": map[string]interface{}{
 									"type":        "string",
-									"description": "Optional PostgreSQL connection string. Overrides POSTGRES_DB_DSN environment variable if provided. Format: postgres://user:password@host:port/dbname?sslmode=disable",
+									"description": "Connection name. Optional for database operations (list_schemas, list_tables, describe_table, query, get_connection_info). Defaults to 'master' if not provided. Must be a configured connection name.",
 								},
 								"schema": map[string]interface{}{
 									"type":        "string",
@@ -167,6 +239,48 @@ Examples:
 									"description": "Maximum number of rows to return. Used with query operation. Default: 1000, Maximum: 10000. Automatically adds LIMIT clause if not present in query.",
 									"minimum":     1,
 									"maximum":     10000,
+								},
+								"name": map[string]interface{}{
+									"type":        "string",
+									"description": "Connection name. Required for create_connection, get_connection, update_connection, delete_connection operations.",
+								},
+								"host": map[string]interface{}{
+									"type":        "string",
+									"description": "Database host. Required for create_connection. Optional for update_connection.",
+								},
+								"port": map[string]interface{}{
+									"type":        "integer",
+									"description": "Database port. Optional for create_connection and update_connection (default: 5432).",
+									"minimum":     1,
+									"maximum":     65535,
+								},
+								"database": map[string]interface{}{
+									"type":        "string",
+									"description": "Database name. Required for create_connection. Optional for update_connection.",
+								},
+								"user": map[string]interface{}{
+									"type":        "string",
+									"description": "Database user. Required for create_connection. Optional for update_connection.",
+								},
+								"password": map[string]interface{}{
+									"type":        "string",
+									"description": "Database password. Required for create_connection. Optional for update_connection (only needed if changing password).",
+								},
+								"sslmode": map[string]interface{}{
+									"type":        "string",
+									"description": "SSL mode. Optional for create_connection and update_connection (default: 'disable'). Common values: 'disable', 'require', 'verify-ca', 'verify-full'.",
+								},
+								"description": map[string]interface{}{
+									"type":        "string",
+									"description": "Connection description. Optional for create_connection and update_connection.",
+								},
+								"old_name": map[string]interface{}{
+									"type":        "string",
+									"description": "Old connection name. Required for rename_connection operation.",
+								},
+								"new_name": map[string]interface{}{
+									"type":        "string",
+									"description": "New connection name. Required for rename_connection operation.",
 								},
 							},
 							"required": []string{"type"},
@@ -272,6 +386,18 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 			result, err = toolQuery(params)
 		case "get_connection_info":
 			result, err = toolGetConnectionInfo(params)
+		case "create_connection":
+			result, err = toolCreateConnection(params)
+		case "list_connections":
+			result, err = toolListConnections(params)
+		case "get_connection":
+			result, err = toolGetConnection(params)
+		case "update_connection":
+			result, err = toolUpdateConnection(params)
+		case "delete_connection":
+			result, err = toolDeleteConnection(params)
+		case "rename_connection":
+			result, err = toolRenameConnection(params)
 		default:
 			err = fmt.Errorf("unknown operation type: %s", opType)
 		}
@@ -340,16 +466,28 @@ func optimizeParams(opType string, params map[string]interface{}) map[string]int
 
 	// Fields to always preserve as-is (metadata)
 	preserveFields := map[string]bool{
-		"connection_string": false, // Don't expose connection strings in responses
-		"schema":            true,
-		"table_name":        true,
-		"limit":             true,
+		"connection_name": true,
+		"schema":          true,
+		"table_name":      true,
+		"limit":           true,
+		"name":            true,
+		"host":            true,
+		"port":            true,
+		"database":        true,
+		"user":            true,
+		"sslmode":         true,
+		"description":     true,
+	}
+
+	// Fields to never expose (security)
+	sensitiveFields := map[string]bool{
+		"password": true,
 	}
 
 	// For postgres operations, truncate long string values (> 20 lines)
 	for k, v := range params {
-		if k == "connection_string" {
-			// Don't include connection strings in responses for security
+		if sensitiveFields[k] {
+			// Don't include sensitive fields in responses
 			continue
 		}
 		if preserveFields[k] {

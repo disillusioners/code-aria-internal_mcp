@@ -4,27 +4,192 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	_ "github.com/lib/pq"
 )
 
-// getConnectionString returns the connection string, preferring per-call override over env var
+var masterDB *sql.DB
+
+// ensureMCPConnectionsTable creates the mcp_connections table if it doesn't exist
+func ensureMCPConnectionsTable() error {
+	if masterDB == nil {
+		return fmt.Errorf("master database connection not initialized")
+	}
+
+	createTableSQL := `
+		CREATE TABLE IF NOT EXISTS mcp_connections (
+			id SERIAL PRIMARY KEY,
+			name VARCHAR(255) UNIQUE NOT NULL,
+			host VARCHAR(255) NOT NULL,
+			port INTEGER NOT NULL DEFAULT 5432,
+			database VARCHAR(255) NOT NULL,
+			user_name VARCHAR(255) NOT NULL,
+			password VARCHAR(255) NOT NULL,
+			sslmode VARCHAR(50) DEFAULT 'disable',
+			description TEXT,
+			created_at TIMESTAMP DEFAULT NOW(),
+			updated_at TIMESTAMP DEFAULT NOW()
+		)
+	`
+
+	_, err := masterDB.Exec(createTableSQL)
+	if err != nil {
+		return fmt.Errorf("failed to create mcp_connections table: %w", err)
+	}
+
+	return nil
+}
+
+// initMasterConnection initializes the master connection in the mcp_connections table
+func initMasterConnection() error {
+	if masterDB == nil {
+		return fmt.Errorf("master database connection not initialized")
+	}
+
+	// Get master connection string from environment
+	masterDSN := os.Getenv("POSTGRES_DB_DSN")
+	if masterDSN == "" {
+		return fmt.Errorf("POSTGRES_DB_DSN environment variable is required")
+	}
+
+	// Parse connection string to extract components
+	parsedURL, err := url.Parse(masterDSN)
+	if err != nil {
+		return fmt.Errorf("failed to parse POSTGRES_DB_DSN: %w", err)
+	}
+
+	host := parsedURL.Hostname()
+	portStr := parsedURL.Port()
+	port := 5432
+	if portStr != "" {
+		port, err = strconv.Atoi(portStr)
+		if err != nil {
+			return fmt.Errorf("invalid port in POSTGRES_DB_DSN: %w", err)
+		}
+	}
+
+	database := strings.TrimPrefix(parsedURL.Path, "/")
+	user := parsedURL.User.Username()
+	password, _ := parsedURL.User.Password()
+
+	// Get sslmode from query parameters
+	sslmode := "disable"
+	if parsedURL.Query().Get("sslmode") != "" {
+		sslmode = parsedURL.Query().Get("sslmode")
+	}
+
+	// Check if master connection already exists
+	var exists bool
+	err = masterDB.QueryRow("SELECT EXISTS(SELECT 1 FROM mcp_connections WHERE name = 'master')").Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("failed to check for existing master connection: %w", err)
+	}
+
+	if exists {
+		// Update existing master connection
+		_, err = masterDB.Exec(`
+			UPDATE mcp_connections 
+			SET host = $1, port = $2, database = $3, user_name = $4, password = $5, sslmode = $6, updated_at = NOW()
+			WHERE name = 'master'
+		`, host, port, database, user, password, sslmode)
+		if err != nil {
+			return fmt.Errorf("failed to update master connection: %w", err)
+		}
+	} else {
+		// Insert new master connection
+		_, err = masterDB.Exec(`
+			INSERT INTO mcp_connections (name, host, port, database, user_name, password, sslmode, description)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		`, "master", host, port, database, user, password, sslmode, "Master connection from POSTGRES_DB_DSN")
+		if err != nil {
+			return fmt.Errorf("failed to insert master connection: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// getConnectionByName retrieves a connection configuration by name
+func getConnectionByName(name string) (*ConnectionConfig, error) {
+	if masterDB == nil {
+		return nil, fmt.Errorf("master database connection not initialized")
+	}
+
+	var config ConnectionConfig
+	var createdAt, updatedAt time.Time
+
+	err := masterDB.QueryRow(`
+		SELECT id, name, host, port, database, user_name, password, sslmode, description, created_at, updated_at
+		FROM mcp_connections
+		WHERE name = $1
+	`, name).Scan(
+		&config.ID, &config.Name, &config.Host, &config.Port, &config.Database,
+		&config.User, &config.Password, &config.SSLMode, &config.Description,
+		&createdAt, &updatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("connection '%s' not found", name)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query connection: %w", err)
+	}
+
+	config.CreatedAt = createdAt
+	config.UpdatedAt = updatedAt
+
+	return &config, nil
+}
+
+// buildConnectionString builds a PostgreSQL connection string from a ConnectionConfig
+func buildConnectionString(config *ConnectionConfig) string {
+	// Build connection string: postgres://user:password@host:port/database?sslmode=...
+	connStr := fmt.Sprintf("postgres://%s:%s@%s:%d/%s",
+		url.QueryEscape(config.User),
+		url.QueryEscape(config.Password),
+		config.Host,
+		config.Port,
+		url.QueryEscape(config.Database),
+	)
+
+	if config.SSLMode != "" {
+		connStr += fmt.Sprintf("?sslmode=%s", url.QueryEscape(config.SSLMode))
+	}
+
+	return connStr
+}
+
+// maskPassword masks a password string for display
+func maskPassword(password string) string {
+	if password == "" {
+		return ""
+	}
+	return "****"
+}
+
+// getConnectionStringByName gets a connection string by connection name
+func getConnectionStringByName(connectionName string) (string, error) {
+	config, err := getConnectionByName(connectionName)
+	if err != nil {
+		return "", err
+	}
+	return buildConnectionString(config), nil
+}
+
+// getConnectionString returns the connection string by connection name (defaults to "master" if not provided)
 func getConnectionString(params map[string]interface{}) (string, error) {
-	// Check for per-call override first
-	if connStr, ok := params["connection_string"].(string); ok && connStr != "" {
-		return connStr, nil
+	connectionName, ok := params["connection_name"].(string)
+	if !ok || connectionName == "" {
+		connectionName = "master" // Default to master connection
 	}
 
-	// Fall back to environment variable
-	connStr := os.Getenv("POSTGRES_DB_DSN")
-	if connStr == "" {
-		return "", fmt.Errorf("POSTGRES_DB_DSN environment variable is required, or provide connection_string parameter")
-	}
-
-	return connStr, nil
+	return getConnectionStringByName(connectionName)
 }
 
 // maskPasswordInConnectionString masks the password in a PostgreSQL connection string
@@ -51,56 +216,33 @@ func maskPasswordInConnectionString(connStr string) string {
 
 // toolGetConnectionInfo returns connection information with masked password
 func toolGetConnectionInfo(params map[string]interface{}) (string, error) {
-	connStr, err := getConnectionString(params)
+	connectionName, ok := params["connection_name"].(string)
+	if !ok || connectionName == "" {
+		connectionName = "master" // Default to master connection
+	}
+
+	config, err := getConnectionByName(connectionName)
 	if err != nil {
 		return "", err
 	}
 
-	// Parse connection string to extract components
-	// Format: postgres://user:password@host:port/dbname?params
-	re := regexp.MustCompile(`postgres://(?:([^:]+):([^@]+)@)?([^:/]+)(?::(\d+))?/([^?]+)?(?:\?(.+))?`)
-	matches := re.FindStringSubmatch(connStr)
+	// Build masked connection string
+	connStr := buildConnectionString(config)
+	maskedConnStr := maskPasswordInConnectionString(connStr)
 
 	info := map[string]interface{}{
-		"connection_string_masked": maskPasswordInConnectionString(connStr),
-		"source":                   "environment",
+		"name":                      config.Name,
+		"connection_string_masked":  maskedConnStr,
+		"host":                      config.Host,
+		"port":                      config.Port,
+		"database":                  config.Database,
+		"user":                      config.User,
+		"sslmode":                   config.SSLMode,
+		"description":               config.Description,
+		"created_at":                config.CreatedAt.Format(time.RFC3339),
+		"updated_at":                config.UpdatedAt.Format(time.RFC3339),
+		"connection_configured":     true,
 	}
-
-	// If connection_string was provided in params, mark it as parameter override
-	if _, ok := params["connection_string"].(string); ok {
-		info["source"] = "parameter_override"
-	}
-
-	// Extract components if possible
-	if len(matches) > 1 && matches[1] != "" {
-		info["user"] = matches[1]
-	}
-	if len(matches) > 3 && matches[3] != "" {
-		info["host"] = matches[3]
-	}
-	if len(matches) > 4 && matches[4] != "" {
-		info["port"] = matches[4]
-	}
-	if len(matches) > 5 && matches[5] != "" {
-		info["database"] = matches[5]
-	}
-	if len(matches) > 6 && matches[6] != "" {
-		// Parse query parameters
-		paramsStr := matches[6]
-		paramsMap := make(map[string]string)
-		for _, param := range strings.Split(paramsStr, "&") {
-			parts := strings.SplitN(param, "=", 2)
-			if len(parts) == 2 {
-				paramsMap[parts[0]] = parts[1]
-			}
-		}
-		if len(paramsMap) > 0 {
-			info["parameters"] = paramsMap
-		}
-	}
-
-	// Test connection if possible (without exposing password)
-	info["connection_configured"] = true
 
 	resultJSON, err := json.Marshal(info)
 	if err != nil {
@@ -541,6 +683,424 @@ func toolQuery(params map[string]interface{}) (string, error) {
 	}
 
 	resultJSON, err := json.Marshal(results)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal result: %w", err)
+	}
+
+	return string(resultJSON), nil
+}
+
+// toolCreateConnection creates a new connection configuration
+func toolCreateConnection(params map[string]interface{}) (string, error) {
+	if masterDB == nil {
+		return "", fmt.Errorf("master database connection not initialized")
+	}
+
+	// Extract required parameters
+	name, ok := params["name"].(string)
+	if !ok || name == "" {
+		return "", fmt.Errorf("name parameter is required")
+	}
+
+	host, ok := params["host"].(string)
+	if !ok || host == "" {
+		return "", fmt.Errorf("host parameter is required")
+	}
+
+	database, ok := params["database"].(string)
+	if !ok || database == "" {
+		return "", fmt.Errorf("database parameter is required")
+	}
+
+	user, ok := params["user"].(string)
+	if !ok || user == "" {
+		return "", fmt.Errorf("user parameter is required")
+	}
+
+	password, ok := params["password"].(string)
+	if !ok || password == "" {
+		return "", fmt.Errorf("password parameter is required")
+	}
+
+	// Extract optional parameters
+	port := 5432
+	if p, ok := params["port"].(float64); ok {
+		port = int(p)
+	}
+
+	sslmode := "disable"
+	if s, ok := params["sslmode"].(string); ok && s != "" {
+		sslmode = s
+	}
+
+	description := ""
+	if d, ok := params["description"].(string); ok {
+		description = d
+	}
+
+	// Insert new connection
+	var id int
+	var createdAt, updatedAt time.Time
+	err := masterDB.QueryRow(`
+		INSERT INTO mcp_connections (name, host, port, database, user_name, password, sslmode, description)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, created_at, updated_at
+	`, name, host, port, database, user, password, sslmode, description).Scan(&id, &createdAt, &updatedAt)
+
+	if err != nil {
+		// Check if it's a unique constraint violation
+		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") {
+			return "", fmt.Errorf("connection with name '%s' already exists", name)
+		}
+		return "", fmt.Errorf("failed to create connection: %w", err)
+	}
+
+	// Return created connection (password masked)
+	result := ConnectionConfig{
+		ID:          id,
+		Name:        name,
+		Host:        host,
+		Port:        port,
+		Database:    database,
+		User:        user,
+		SSLMode:     sslmode,
+		Description: description,
+		CreatedAt:   createdAt,
+		UpdatedAt:   updatedAt,
+	}
+
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal result: %w", err)
+	}
+
+	return string(resultJSON), nil
+}
+
+// toolListConnections lists all connections (passwords masked)
+func toolListConnections(params map[string]interface{}) (string, error) {
+	if masterDB == nil {
+		return "", fmt.Errorf("master database connection not initialized")
+	}
+
+	rows, err := masterDB.Query(`
+		SELECT id, name, host, port, database, user_name, sslmode, description, created_at, updated_at
+		FROM mcp_connections
+		ORDER BY name
+	`)
+	if err != nil {
+		return "", fmt.Errorf("failed to query connections: %w", err)
+	}
+	defer rows.Close()
+
+	var connections []ConnectionConfig
+	for rows.Next() {
+		var conn ConnectionConfig
+		var createdAt, updatedAt time.Time
+
+		err := rows.Scan(
+			&conn.ID, &conn.Name, &conn.Host, &conn.Port, &conn.Database,
+			&conn.User, &conn.SSLMode, &conn.Description, &createdAt, &updatedAt,
+		)
+		if err != nil {
+			return "", fmt.Errorf("failed to scan connection: %w", err)
+		}
+
+		conn.CreatedAt = createdAt
+		conn.UpdatedAt = updatedAt
+		connections = append(connections, conn)
+	}
+
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf("error iterating connections: %w", err)
+	}
+
+	resultJSON, err := json.Marshal(connections)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal result: %w", err)
+	}
+
+	return string(resultJSON), nil
+}
+
+// toolGetConnection gets a connection by name (password masked)
+func toolGetConnection(params map[string]interface{}) (string, error) {
+	name, ok := params["name"].(string)
+	if !ok || name == "" {
+		return "", fmt.Errorf("name parameter is required")
+	}
+
+	config, err := getConnectionByName(name)
+	if err != nil {
+		return "", err
+	}
+
+	// Create a copy without password for response
+	result := ConnectionConfig{
+		ID:          config.ID,
+		Name:        config.Name,
+		Host:        config.Host,
+		Port:        config.Port,
+		Database:    config.Database,
+		User:        config.User,
+		SSLMode:     config.SSLMode,
+		Description: config.Description,
+		CreatedAt:   config.CreatedAt,
+		UpdatedAt:   config.UpdatedAt,
+	}
+
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal result: %w", err)
+	}
+
+	return string(resultJSON), nil
+}
+
+// toolUpdateConnection updates a connection configuration
+func toolUpdateConnection(params map[string]interface{}) (string, error) {
+	if masterDB == nil {
+		return "", fmt.Errorf("master database connection not initialized")
+	}
+
+	name, ok := params["name"].(string)
+	if !ok || name == "" {
+		return "", fmt.Errorf("name parameter is required")
+	}
+
+	// Check if connection exists
+	existing, err := getConnectionByName(name)
+	if err != nil {
+		return "", err
+	}
+
+	// Build update query dynamically based on provided parameters
+	updates := []string{}
+	args := []interface{}{}
+	argIndex := 1
+
+	if host, ok := params["host"].(string); ok && host != "" {
+		updates = append(updates, fmt.Sprintf("host = $%d", argIndex))
+		args = append(args, host)
+		argIndex++
+		existing.Host = host
+	}
+
+	if port, ok := params["port"].(float64); ok {
+		updates = append(updates, fmt.Sprintf("port = $%d", argIndex))
+		args = append(args, int(port))
+		argIndex++
+		existing.Port = int(port)
+	}
+
+	if database, ok := params["database"].(string); ok && database != "" {
+		updates = append(updates, fmt.Sprintf("database = $%d", argIndex))
+		args = append(args, database)
+		argIndex++
+		existing.Database = database
+	}
+
+	if user, ok := params["user"].(string); ok && user != "" {
+		updates = append(updates, fmt.Sprintf(`user_name = $%d`, argIndex))
+		args = append(args, user)
+		argIndex++
+		existing.User = user
+	}
+
+	if password, ok := params["password"].(string); ok && password != "" {
+		updates = append(updates, fmt.Sprintf("password = $%d", argIndex))
+		args = append(args, password)
+		argIndex++
+	}
+
+	if sslmode, ok := params["sslmode"].(string); ok {
+		updates = append(updates, fmt.Sprintf("sslmode = $%d", argIndex))
+		args = append(args, sslmode)
+		argIndex++
+		existing.SSLMode = sslmode
+	}
+
+	if description, ok := params["description"].(string); ok {
+		updates = append(updates, fmt.Sprintf("description = $%d", argIndex))
+		args = append(args, description)
+		argIndex++
+		existing.Description = description
+	}
+
+	if len(updates) == 0 {
+		// No updates provided, return existing connection
+		result := ConnectionConfig{
+			ID:          existing.ID,
+			Name:        existing.Name,
+			Host:        existing.Host,
+			Port:        existing.Port,
+			Database:    existing.Database,
+			User:        existing.User,
+			SSLMode:     existing.SSLMode,
+			Description: existing.Description,
+			CreatedAt:   existing.CreatedAt,
+			UpdatedAt:   existing.UpdatedAt,
+		}
+		resultJSON, err := json.Marshal(result)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal result: %w", err)
+		}
+		return string(resultJSON), nil
+	}
+
+	// Add updated_at and name for WHERE clause
+	updates = append(updates, fmt.Sprintf("updated_at = NOW()"))
+	args = append(args, name)
+
+	query := fmt.Sprintf(`
+		UPDATE mcp_connections
+		SET %s
+		WHERE name = $%d
+		RETURNING updated_at
+	`, strings.Join(updates, ", "), argIndex)
+
+	var updatedAt time.Time
+	err = masterDB.QueryRow(query, args...).Scan(&updatedAt)
+	if err != nil {
+		return "", fmt.Errorf("failed to update connection: %w", err)
+	}
+
+	existing.UpdatedAt = updatedAt
+
+	// Return updated connection (password masked)
+	result := ConnectionConfig{
+		ID:          existing.ID,
+		Name:        existing.Name,
+		Host:        existing.Host,
+		Port:        existing.Port,
+		Database:    existing.Database,
+		User:        existing.User,
+		SSLMode:     existing.SSLMode,
+		Description: existing.Description,
+		CreatedAt:   existing.CreatedAt,
+		UpdatedAt:   existing.UpdatedAt,
+	}
+
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal result: %w", err)
+	}
+
+	return string(resultJSON), nil
+}
+
+// toolDeleteConnection deletes a connection by name
+func toolDeleteConnection(params map[string]interface{}) (string, error) {
+	if masterDB == nil {
+		return "", fmt.Errorf("master database connection not initialized")
+	}
+
+	name, ok := params["name"].(string)
+	if !ok || name == "" {
+		return "", fmt.Errorf("name parameter is required")
+	}
+
+	// Prevent deletion of master connection
+	if name == "master" {
+		return "", fmt.Errorf("cannot delete the master connection")
+	}
+
+	result, err := masterDB.Exec("DELETE FROM mcp_connections WHERE name = $1", name)
+	if err != nil {
+		return "", fmt.Errorf("failed to delete connection: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return "", fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return "", fmt.Errorf("connection '%s' not found", name)
+	}
+
+	response := map[string]interface{}{
+		"message":       fmt.Sprintf("Connection '%s' deleted successfully", name),
+		"name":          name,
+		"rows_affected": rowsAffected,
+	}
+
+	resultJSON, err := json.Marshal(response)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal result: %w", err)
+	}
+
+	return string(resultJSON), nil
+}
+
+// toolRenameConnection renames a connection
+func toolRenameConnection(params map[string]interface{}) (string, error) {
+	if masterDB == nil {
+		return "", fmt.Errorf("master database connection not initialized")
+	}
+
+	oldName, ok := params["old_name"].(string)
+	if !ok || oldName == "" {
+		return "", fmt.Errorf("old_name parameter is required")
+	}
+
+	newName, ok := params["new_name"].(string)
+	if !ok || newName == "" {
+		return "", fmt.Errorf("new_name parameter is required")
+	}
+
+	// Prevent renaming master connection
+	if oldName == "master" {
+		return "", fmt.Errorf("cannot rename the master connection")
+	}
+
+	// Check if old connection exists
+	_, err := getConnectionByName(oldName)
+	if err != nil {
+		return "", fmt.Errorf("connection '%s' not found: %w", oldName, err)
+	}
+
+	// Check if new name already exists
+	var exists bool
+	err = masterDB.QueryRow("SELECT EXISTS(SELECT 1 FROM mcp_connections WHERE name = $1)", newName).Scan(&exists)
+	if err != nil {
+		return "", fmt.Errorf("failed to check for existing connection: %w", err)
+	}
+	if exists {
+		return "", fmt.Errorf("connection with name '%s' already exists", newName)
+	}
+
+	// Update the connection name
+	_, err = masterDB.Exec(`
+		UPDATE mcp_connections 
+		SET name = $1, updated_at = NOW()
+		WHERE name = $2
+	`, newName, oldName)
+	if err != nil {
+		return "", fmt.Errorf("failed to rename connection: %w", err)
+	}
+
+	// Get the renamed connection
+	config, err := getConnectionByName(newName)
+	if err != nil {
+		return "", fmt.Errorf("failed to retrieve renamed connection: %w", err)
+	}
+
+	// Return renamed connection (password masked)
+	result := ConnectionConfig{
+		ID:          config.ID,
+		Name:        config.Name,
+		Host:        config.Host,
+		Port:        config.Port,
+		Database:    config.Database,
+		User:        config.User,
+		SSLMode:     config.SSLMode,
+		Description: config.Description,
+		CreatedAt:   config.CreatedAt,
+		UpdatedAt:   config.UpdatedAt,
+	}
+
+	resultJSON, err := json.Marshal(result)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal result: %w", err)
 	}
