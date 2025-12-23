@@ -331,15 +331,34 @@ func TestHandleBatchOperations(t *testing.T) {
 				t.Fatal("Expected result, got none")
 			}
 
-			// Verify result structure
-			resultMap, ok := response.Result.(map[string]interface{})
-			if !ok {
-				t.Fatal("Result is not a map")
+			// Verify MCP-compliant response structure (ToolsCallResponse with content array)
+			resultBytes, err := json.Marshal(response.Result)
+			if err != nil {
+				t.Fatalf("Failed to marshal result: %v", err)
 			}
 
-			results, ok := resultMap["results"].([]interface{})
+			var toolsResp ToolsCallResponse
+			if err := json.Unmarshal(resultBytes, &toolsResp); err != nil {
+				t.Fatalf("Failed to parse ToolsCallResponse: %v", err)
+			}
+
+			if len(toolsResp.Content) == 0 {
+				t.Fatal("Expected content array with at least one item")
+			}
+
+			if toolsResp.Content[0].Type != "text" {
+				t.Errorf("Expected content type 'text', got '%s'", toolsResp.Content[0].Type)
+			}
+
+			// Parse the JSON text content to verify results structure
+			var resultData map[string]interface{}
+			if err := json.Unmarshal([]byte(toolsResp.Content[0].Text), &resultData); err != nil {
+				t.Fatalf("Failed to parse content text as JSON: %v", err)
+			}
+
+			results, ok := resultData["results"].([]interface{})
 			if !ok {
-				t.Fatal("Results is not an array")
+				t.Fatal("Results is not an array in content text")
 			}
 
 			if len(results) != len(tt.operations) {
