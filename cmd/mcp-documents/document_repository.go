@@ -201,8 +201,11 @@ func (r *SQLDocumentRepository) GetDocumentContent(
 		doc := map[string]interface{}{
 			"id":        id.String,
 			"name":      name.String,
-			"content":   content.String,
 			"is_active": isActive,
+		}
+
+		if content.Valid {
+			doc["content"] = content.String
 		}
 
 		if description.Valid {

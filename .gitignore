@@ -26,14 +26,13 @@ go.work
 /mcp-code-edit
 /mcp-git-binary
 /mcp-bash
-/mcp-savepoints
+/mc-savepoints
 /mcp-lang-go
 /mcp-powershell
 /mcp-systeminfo
 /mcp-guidelines
 /mcp-documents
 /mcp-postgres
-/mcp-savepoints
 /cmd/mcp-bash/mcp-bash
 /cmd/mcp-lang-go/mcp-lang-go
 /cmd/mcp-powershell/mcp-powershell
@@ -46,3 +45,4 @@ go.work
 /cmd/mcp-filesystem/mcp-filesystem
 /cmd/mcp-git/mcp-git
 /cmd/mcp-savepoints/mcp-savepoints
+mcp-savepoints

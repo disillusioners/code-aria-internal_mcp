@@ -106,7 +106,9 @@ func getGuidelines(tenantID *string, category *string, tags []string, isActive *
 		var tagsJSON, metadataJSON []byte
 		var catID sql.NullString
 		var cat GuidelineCategory
-		var catDescription, catColor, catIcon, catCreatedBy, catUpdatedBy sql.NullString
+		var catName, catDescription, catColor, catIcon, catTenantID, catCreatedBy, catUpdatedBy sql.NullString
+		var catIsActive sql.NullBool
+		var catCreatedAt, catUpdatedAt sql.NullTime
 		var catMetadataJSON []byte
 
 		err := rows.Scan(
@@ -122,15 +124,15 @@ func getGuidelines(tenantID *string, category *string, tags []string, isActive *
 			&g.CreatedAt,
 			&g.UpdatedAt,
 			&catID,
-			&cat.Name,
+			&catName,
 			&catDescription,
 			&catColor,
 			&catIcon,
 			&catMetadataJSON,
-			&cat.IsActive,
-			&cat.TenantID,
-			&cat.CreatedAt,
-			&cat.UpdatedAt,
+			&catIsActive,
+			&catTenantID,
+			&catCreatedAt,
+			&catUpdatedAt,
 			&catCreatedBy,
 			&catUpdatedBy,
 		)
@@ -150,6 +152,9 @@ func getGuidelines(tenantID *string, category *string, tags []string, isActive *
 
 		if catID.Valid {
 			cat.ID = catID.String
+			if catName.Valid {
+				cat.Name = catName.String
+			}
 			if catDescription.Valid {
 				cat.Description = catDescription.String
 			}
@@ -158,6 +163,18 @@ func getGuidelines(tenantID *string, category *string, tags []string, isActive *
 			}
 			if catIcon.Valid {
 				cat.Icon = catIcon.String
+			}
+			if catIsActive.Valid {
+				cat.IsActive = catIsActive.Bool
+			}
+			if catTenantID.Valid {
+				cat.TenantID = catTenantID.String
+			}
+			if catCreatedAt.Valid {
+				cat.CreatedAt = catCreatedAt.Time
+			}
+			if catUpdatedAt.Valid {
+				cat.UpdatedAt = catUpdatedAt.Time
 			}
 			if catCreatedBy.Valid {
 				cat.CreatedBy = catCreatedBy.String
@@ -216,7 +233,9 @@ func getGuidelinesByIDs(ids []string) ([]Guideline, error) {
 		var tagsJSON, metadataJSON []byte
 		var catID sql.NullString
 		var cat GuidelineCategory
-		var catDescription, catColor, catIcon, catCreatedBy, catUpdatedBy sql.NullString
+		var catName, catDescription, catColor, catIcon, catTenantID, catCreatedBy, catUpdatedBy sql.NullString
+		var catIsActive sql.NullBool
+		var catCreatedAt, catUpdatedAt sql.NullTime
 		var catMetadataJSON []byte
 
 		err := rows.Scan(
@@ -232,15 +251,15 @@ func getGuidelinesByIDs(ids []string) ([]Guideline, error) {
 			&g.CreatedAt,
 			&g.UpdatedAt,
 			&catID,
-			&cat.Name,
+			&catName,
 			&catDescription,
 			&catColor,
 			&catIcon,
 			&catMetadataJSON,
-			&cat.IsActive,
-			&cat.TenantID,
-			&cat.CreatedAt,
-			&cat.UpdatedAt,
+			&catIsActive,
+			&catTenantID,
+			&catCreatedAt,
+			&catUpdatedAt,
 			&catCreatedBy,
 			&catUpdatedBy,
 		)
@@ -260,6 +279,9 @@ func getGuidelinesByIDs(ids []string) ([]Guideline, error) {
 
 		if catID.Valid {
 			cat.ID = catID.String
+			if catName.Valid {
+				cat.Name = catName.String
+			}
 			if catDescription.Valid {
 				cat.Description = catDescription.String
 			}
@@ -268,6 +290,18 @@ func getGuidelinesByIDs(ids []string) ([]Guideline, error) {
 			}
 			if catIcon.Valid {
 				cat.Icon = catIcon.String
+			}
+			if catIsActive.Valid {
+				cat.IsActive = catIsActive.Bool
+			}
+			if catTenantID.Valid {
+				cat.TenantID = catTenantID.String
+			}
+			if catCreatedAt.Valid {
+				cat.CreatedAt = catCreatedAt.Time
+			}
+			if catUpdatedAt.Valid {
+				cat.UpdatedAt = catUpdatedAt.Time
 			}
 			if catCreatedBy.Valid {
 				cat.CreatedBy = catCreatedBy.String
@@ -339,7 +373,9 @@ func searchGuidelines(searchTerm string, tenantID *string, category *string, lim
 		var tagsJSON, metadataJSON []byte
 		var catID sql.NullString
 		var cat GuidelineCategory
-		var catDescription, catColor, catIcon, catCreatedBy, catUpdatedBy sql.NullString
+		var catName, catDescription, catColor, catIcon, catTenantID, catCreatedBy, catUpdatedBy sql.NullString
+		var catIsActive sql.NullBool
+		var catCreatedAt, catUpdatedAt sql.NullTime
 		var catMetadataJSON []byte
 
 		err := rows.Scan(
@@ -355,15 +391,15 @@ func searchGuidelines(searchTerm string, tenantID *string, category *string, lim
 			&g.CreatedAt,
 			&g.UpdatedAt,
 			&catID,
-			&cat.Name,
+			&catName,
 			&catDescription,
 			&catColor,
 			&catIcon,
 			&catMetadataJSON,
-			&cat.IsActive,
-			&cat.TenantID,
-			&cat.CreatedAt,
-			&cat.UpdatedAt,
+			&catIsActive,
+			&catTenantID,
+			&catCreatedAt,
+			&catUpdatedAt,
 			&catCreatedBy,
 			&catUpdatedBy,
 		)
@@ -383,6 +419,9 @@ func searchGuidelines(searchTerm string, tenantID *string, category *string, lim
 
 		if catID.Valid {
 			cat.ID = catID.String
+			if catName.Valid {
+				cat.Name = catName.String
+			}
 			if catDescription.Valid {
 				cat.Description = catDescription.String
 			}
@@ -391,6 +430,18 @@ func searchGuidelines(searchTerm string, tenantID *string, category *string, lim
 			}
 			if catIcon.Valid {
 				cat.Icon = catIcon.String
+			}
+			if catIsActive.Valid {
+				cat.IsActive = catIsActive.Bool
+			}
+			if catTenantID.Valid {
+				cat.TenantID = catTenantID.String
+			}
+			if catCreatedAt.Valid {
+				cat.CreatedAt = catCreatedAt.Time
+			}
+			if catUpdatedAt.Valid {
+				cat.UpdatedAt = catUpdatedAt.Time
 			}
 			if catCreatedBy.Valid {
 				cat.CreatedBy = catCreatedBy.String
