@@ -1,6 +1,6 @@
 # Code-Aria Internal MCP Servers
 
-This project contains a set of Model Context Protocol (MCP) servers that are used to interact with codebases. These servers provide tools for file system operations, code analysis, git operations, code editing, secure bash command execution, PowerShell command execution, comprehensive system information gathering, checkpoint management, document repository access, and Go language linting.
+This project contains a set of Model Context Protocol (MCP) servers that are used to interact with codebases. These servers provide tools for file system operations, code analysis, git operations, code editing, secure bash command execution, PowerShell command execution, comprehensive system information gathering, savepoint management, document repository access, and Go language linting.
 
 ## Overview
 
@@ -188,22 +188,22 @@ Provides read-only access to PostgreSQL databases for querying data and inspecti
 
 ### 10. mcp-savepoints
 
-Provides checkpoint management for creating and restoring working directory states:
+Provides savepoint management for creating and restoring working directory states:
 
-- `create_checkpoint(name, description)` - Create a checkpoint of current working directory changes
-- `list_checkpoints()` - List all available checkpoints
-- `get_checkpoint(checkpoint_id)` - Get details of a specific checkpoint
-- `restore_checkpoint(checkpoint_id)` - Restore a checkpoint to the working directory
-- `delete_checkpoint(checkpoint_id)` - Delete a checkpoint
-- `get_checkpoint_info(checkpoint_id)` - Get detailed information about a checkpoint including file list
-- `apply_operations(operations)` - Execute multiple checkpoint operations in a single batch call
+- `create_savepoint(name, description)` - Create a savepoint of current working directory changes
+- `list_savepoints()` - List all available savepoints
+- `get_savepoint(savepoint_id)` - Get details of a specific savepoint
+- `restore_savepoint(savepoint_id)` - Restore a savepoint to the working directory
+- `delete_savepoint(savepoint_id)` - Delete a savepoint
+- `get_savepoint_info(savepoint_id)` - Get detailed information about a savepoint including file list
+- `apply_operations(operations)` - Execute multiple savepoint operations in a single batch call
 
 **Key Features:**
 - **State Management**: Create snapshots of working directory changes
 - **Quick Restoration**: Restore previous states without manual file operations
 - **Batch Operations**: Execute multiple operations efficiently in a single call
-- **File Tracking**: Track which files are included in each checkpoint
-- **Safe Operations**: Non-destructive checkpoint creation and deletion
+- **File Tracking**: Track which files are included in each savepoint
+- **Safe Operations**: Non-destructive savepoint creation and deletion
 
 **Use Cases:**
 - **Experimentation**: Try changes safely and revert if needed
@@ -212,9 +212,9 @@ Provides checkpoint management for creating and restoring working directory stat
 - **Development Workflow**: Save progress points during complex refactoring
 
 **Storage:**
-- Checkpoints are stored in `.mcp/checkpoints` directory in the repository root
-- Each checkpoint contains metadata and compressed file changes
-- Automatic cleanup of old checkpoints can be configured
+- Savepoints are stored in `.mcp/savepoints` directory in the repository root
+- Each savepoint contains metadata and compressed file changes
+- Automatic cleanup of old savepoints can be configured
 
 ### 11. mcp-documents
 
@@ -444,8 +444,8 @@ code-aria-internal_mcp/
 │   │   └── README.md
 │   ├── mcp-savepoints/
 │   │   ├── main.go
-│   │   ├── checkpoint_manager.go
-│   │   ├── checkpoint_operations.go
+│   │   ├── savepoint_manager.go
+│   │   ├── savepoint_operations.go
 │   │   ├── mcp.go
 │   │   └── types.go
 │   ├── mcp-documents/
