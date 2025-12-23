@@ -1,7 +1,7 @@
 # PowerShell script to install MCP servers on Windows
 
 # Check if all executables exist
-$requiredFiles = @("mcp-filesystem.exe", "mcp-codebase.exe", "mcp-git.exe", "mcp-code-edit.exe", "mcp-bash.exe", "mcp-powershell.exe", "mcp-systeminfo.exe", "mcp-checkpoints.exe", "mcp-lang-go.exe", "mcp-guidelines.exe", "mcp-documents.exe", "mcp-postgres.exe")
+$requiredFiles = @("mcp-filesystem.exe", "mcp-codebase.exe", "mcp-git.exe", "mcp-code-edit.exe", "mcp-bash.exe", "mcp-powershell.exe", "mcp-systeminfo.exe", "mcp-savepoints.exe", "mcp-lang-go.exe", "mcp-guidelines.exe", "mcp-documents.exe", "mcp-postgres.exe")
 foreach ($file in $requiredFiles) {
     if (-not (Test-Path $file)) {
         Write-Error "Error: MCP servers not built. Run 'make build-mcp-servers' first."
@@ -44,7 +44,7 @@ Write-Host "Installing to $installDir"
 
 # Remove existing MCP server executables from destination
 Write-Host "Removing existing MCP server executables from $installDir..."
-$allExecutables = @("mcp-filesystem.exe", "mcp-codebase.exe", "mcp-git.exe", "mcp-code-edit.exe", "mcp-bash.exe", "mcp-powershell.exe", "mcp-systeminfo.exe", "mcp-checkpoints.exe", "mcp-lang-go.exe", "mcp-guidelines.exe", "mcp-documents.exe", "mcp-postgres.exe")
+$allExecutables = @("mcp-filesystem.exe", "mcp-codebase.exe", "mcp-git.exe", "mcp-code-edit.exe", "mcp-bash.exe", "mcp-powershell.exe", "mcp-systeminfo.exe", "mcp-savepoints.exe", "mcp-lang-go.exe", "mcp-guidelines.exe", "mcp-documents.exe", "mcp-postgres.exe")
 foreach ($exe in $allExecutables) {
     $destPath = Join-Path $installDir $exe
     if (Test-Path $destPath) {

@@ -186,7 +186,7 @@ Provides read-only access to PostgreSQL databases for querying data and inspecti
 - Format: `postgres://user:password@host:port/dbname?sslmode=disable`
 - Can be overridden per-operation via `connection_string` parameter
 
-### 10. mcp-checkpoints
+### 10. mcp-savepoints
 
 Provides checkpoint management for creating and restoring working directory states:
 
@@ -294,7 +294,7 @@ make mcp-servers
 ```
 
 This command will:
-1. Build all 12 MCP server executables (`mcp-filesystem`, `mcp-codebase`, `mcp-git`, `mcp-code-edit`, `mcp-bash`, `mcp-powershell`, `mcp-systeminfo`, `mcp-guidelines`, `mcp-postgres`, `mcp-checkpoints`, `mcp-documents`, `mcp-lang-go`)
+1. Build all 12 MCP server executables (`mcp-filesystem`, `mcp-codebase`, `mcp-git`, `mcp-code-edit`, `mcp-bash`, `mcp-powershell`, `mcp-systeminfo`, `mcp-guidelines`, `mcp-postgres`, `mcp-savepoints`, `mcp-documents`, `mcp-lang-go`)
 2. Automatically detect the best installation directory (`~/bin`, `~/.local/bin`, or `/usr/local/bin`)
 3. Copy executables to the installation directory
 4. Set executable permissions
@@ -336,7 +336,7 @@ go build -o mcp-powershell ./cmd/mcp-powershell
 go build -o mcp-systeminfo ./cmd/mcp-systeminfo
 go build -o mcp-guidelines ./cmd/mcp-guidelines
 go build -o mcp-postgres ./cmd/mcp-postgres
-go build -o mcp-checkpoints ./cmd/mcp-checkpoints
+go build -o mcp-savepoints ./cmd/mcp-savepoints
 go build -o mcp-documents ./cmd/mcp-documents
 go build -o mcp-lang-go ./cmd/mcp-lang-go
 ```
@@ -442,7 +442,7 @@ code-aria-internal_mcp/
 │   │   ├── database.go
 │   │   ├── types.go
 │   │   └── README.md
-│   ├── mcp-checkpoints/
+│   ├── mcp-savepoints/
 │   │   ├── main.go
 │   │   ├── checkpoint_manager.go
 │   │   ├── checkpoint_operations.go
