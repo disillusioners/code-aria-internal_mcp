@@ -40,6 +40,16 @@ func handleInitialize(scanner *bufio.Scanner, encoder *json.Encoder) error {
 		return fmt.Errorf("no initialized notification")
 	}
 
+	var initializedMsg MCPMessage
+	if err := json.Unmarshal(scanner.Bytes(), &initializedMsg); err != nil {
+		return fmt.Errorf("failed to parse initialized notification: %w", err)
+	}
+
+	// Validate that this is the initialized notification
+	if initializedMsg.Method != "notifications/initialized" {
+		return fmt.Errorf("expected initialized notification, got method: %s", initializedMsg.Method)
+	}
+
 	return nil
 }
 
@@ -214,12 +224,27 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 		}
 	}
 
-	// Return results in format expected by client: {"results": [...]}
+	// Serialize results to JSON text for MCP-compliant response format
+	resultsJSON, err := json.Marshal(map[string]interface{}{
+		"results": results,
+	})
+	if err != nil {
+		sendError(encoder, msg.ID, -32700, fmt.Sprintf("Failed to marshal results: %v", err), nil)
+		return
+	}
+
+	// Return results in MCP-compliant format using ToolsCallResponse
 	response := MCPMessage{
 		JSONRPC: "2.0",
 		ID:      msg.ID,
-		Result: map[string]interface{}{
-			"results": results,
+		Result: ToolsCallResponse{
+			Content: []Content{
+				{
+					Type: "text",
+					Text: string(resultsJSON),
+				},
+			},
+			IsError: false,
 		},
 	}
 

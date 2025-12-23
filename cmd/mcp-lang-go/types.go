@@ -46,6 +46,16 @@ type ToolsCallRequest struct {
 	Arguments map[string]interface{} `json:"arguments,omitempty"`
 }
 
+type ToolsCallResponse struct {
+	Content []Content `json:"content"`
+	IsError bool      `json:"isError,omitempty"`
+}
+
+type Content struct {
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
+}
+
 // Go-specific operation types
 type LintOperation struct {
 	Type   string                 `json:"type"`
