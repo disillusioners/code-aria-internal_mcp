@@ -161,30 +161,44 @@ Provides read-only access to guidelines from the PostgreSQL database for customi
 
 ### 9. mcp-postgres
 
-Provides read-only access to PostgreSQL databases for querying data and inspecting schemas:
+Provides read-only access to PostgreSQL databases for querying data and inspecting schemas with connection management:
 
-- `list_schemas` - List all schemas in the database
-- `list_tables(schema)` - List tables in a schema with metadata
-- `describe_table(table_name, schema)` - Get detailed table schema (columns, types, constraints, indexes)
-- `query(query, params, limit)` - Execute parameterized SELECT queries
+- `list_schemas(connection_name)` - List all schemas in the database
+- `list_tables(connection_name, schema)` - List tables in a schema with metadata
+- `describe_table(connection_name, table_name, schema)` - Get detailed table schema (columns, types, constraints, indexes)
+- `query(connection_name, query, params, limit)` - Execute parameterized SELECT queries
+- `get_connection_info(connection_name)` - Get connection information
+- `create_connection(name, host, database, user, password, ...)` - Create a new database connection
+- `list_connections()` - List all configured connections
+- `get_connection(name)` - Get a connection configuration by name
+- `update_connection(name, ...)` - Update a connection configuration
+- `delete_connection(name)` - Delete a connection configuration
+- `rename_connection(old_name, new_name)` - Rename a connection
 
 **Key Features:**
 - **Read-Only Access**: Only SELECT queries allowed, all data modification operations rejected
 - **Schema Inspection**: Explore database structure without modifying data
 - **Parameterized Queries**: Support for safe parameterized queries to prevent SQL injection
-- **Flexible Configuration**: Connection string via environment variable or per-operation override
+- **Connection Management**: Manage multiple database connections by name
+- **Automatic SQLite Fallback**: Automatically uses SQLite if `POSTGRES_DB_DSN` is not configured
 - **Result Limiting**: Automatic result limiting for safety (default 1000 rows, max 10000)
+- **Connection Name Defaults**: Tools default to "master" connection in PostgreSQL mode
 
 **Use Cases:**
 - **Database Exploration**: Inspect database schemas and table structures
 - **Data Querying**: Execute safe SELECT queries to retrieve data
 - **Schema Analysis**: Understand database structure for code generation
 - **Data Inspection**: Query data for debugging or analysis purposes
+- **Multi-Database Management**: Query multiple databases through named connections
 
 **Configuration:**
-- Requires `POSTGRES_DB_DSN` environment variable with PostgreSQL connection string
+- **Optional**: `POSTGRES_DB_DSN` environment variable with PostgreSQL connection string
+  - If set: Uses PostgreSQL and automatically creates a "master" connection
+  - If not set: Automatically falls back to SQLite database (`mcp-postgres.db` in current directory)
 - Format: `postgres://user:password@host:port/dbname?sslmode=disable`
-- Can be overridden per-operation via `connection_string` parameter
+- **Connection Name**: All database operations accept optional `connection_name` parameter
+  - In PostgreSQL mode: Defaults to "master" if not specified
+  - In SQLite mode: Must be explicitly provided (no default connection)
 
 ### 10. mcp-savepoints
 
@@ -280,7 +294,8 @@ Provides Go language-specific tools for code quality and linting:
 - Git (for mcp-git server)
 - Bash (for mcp-bash server)
 - PowerShell (for mcp-powershell server) - Windows PowerShell 5.1+ or PowerShell Core 6.0+
-- PostgreSQL (for mcp-guidelines, mcp-postgres, and mcp-documents servers) - Database access
+- PostgreSQL (for mcp-guidelines and mcp-documents servers) - Database access
+- PostgreSQL (optional for mcp-postgres server) - Falls back to SQLite if not configured
 - golangci-lint (auto-managed by mcp-lang-go server)
 
 ## Installation
