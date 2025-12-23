@@ -1,6 +1,6 @@
 # Code-Aria Internal MCP Servers
 
-This project contains a set of Model Context Protocol (MCP) servers that are used to interact with codebases. These servers provide tools for file system operations, code analysis, git operations, code editing, secure bash command execution, PowerShell command execution, and comprehensive system information gathering.
+This project contains a set of Model Context Protocol (MCP) servers that are used to interact with codebases. These servers provide tools for file system operations, code analysis, git operations, code editing, secure bash command execution, PowerShell command execution, comprehensive system information gathering, checkpoint management, document repository access, and Go language linting.
 
 ## Overview
 
@@ -186,13 +186,102 @@ Provides read-only access to PostgreSQL databases for querying data and inspecti
 - Format: `postgres://user:password@host:port/dbname?sslmode=disable`
 - Can be overridden per-operation via `connection_string` parameter
 
+### 10. mcp-checkpoints
+
+Provides checkpoint management for creating and restoring working directory states:
+
+- `create_checkpoint(name, description)` - Create a checkpoint of current working directory changes
+- `list_checkpoints()` - List all available checkpoints
+- `get_checkpoint(checkpoint_id)` - Get details of a specific checkpoint
+- `restore_checkpoint(checkpoint_id)` - Restore a checkpoint to the working directory
+- `delete_checkpoint(checkpoint_id)` - Delete a checkpoint
+- `get_checkpoint_info(checkpoint_id)` - Get detailed information about a checkpoint including file list
+- `apply_operations(operations)` - Execute multiple checkpoint operations in a single batch call
+
+**Key Features:**
+- **State Management**: Create snapshots of working directory changes
+- **Quick Restoration**: Restore previous states without manual file operations
+- **Batch Operations**: Execute multiple operations efficiently in a single call
+- **File Tracking**: Track which files are included in each checkpoint
+- **Safe Operations**: Non-destructive checkpoint creation and deletion
+
+**Use Cases:**
+- **Experimentation**: Try changes safely and revert if needed
+- **Branch Comparison**: Save states before switching branches
+- **Error Recovery**: Quickly restore working state after failed changes
+- **Development Workflow**: Save progress points during complex refactoring
+
+**Storage:**
+- Checkpoints are stored in `.mcp/checkpoints` directory in the repository root
+- Each checkpoint contains metadata and compressed file changes
+- Automatic cleanup of old checkpoints can be configured
+
+### 11. mcp-documents
+
+Provides read-only access to documents from the PostgreSQL database for AI agent context:
+
+- `get_documents(tenant_id, category_id, tags, is_active, limit)` - Get documents filtered by tenant, category, tags, or active status
+- `get_document_content(document_ids)` - Get full content of specific documents by IDs
+- `search_documents(query, tenant_id, limit)` - Search documents by query text
+- `apply_operations(operations)` - Execute multiple document operations in a single batch call
+
+**Key Features:**
+- **Database Integration**: Connects directly to PostgreSQL database (same as API/Worker)
+- **Flexible Filtering**: Filter by tenant, category, tags, or active status
+- **Full-Text Search**: Search across document content with relevance ranking
+- **Batch Operations**: Execute multiple operations efficiently in a single call
+- **Read-Only**: Secure read-only operations with parameterized queries
+- **Tenant Isolation**: Support for multi-tenant document access
+
+**Use Cases:**
+- **Context Retrieval**: Provide relevant documents as context for AI agents
+- **Knowledge Base**: Access project documentation and guidelines
+- **Document Search**: Find documents based on content queries
+- **Workflow Integration**: Attach documents to workflows for enhanced AI assistance
+
+**Configuration:**
+- Requires `DOCUMENTS_DB_DSN` environment variable with PostgreSQL connection string
+- Format: `postgres://user:password@host:port/dbname?sslmode=disable`
+
+### 12. mcp-lang-go
+
+Provides Go language-specific tools for code quality and linting:
+
+- `lint(target, format, config)` - Run golangci-lint on Go code with embedded binary management
+- `apply_operations(operations)` - Execute multiple Go operations in a single batch call
+
+**Key Features:**
+- **Embedded Binary**: Automatically manages golangci-lint binary (downloads if needed)
+- **Flexible Targeting**: Lint specific files, directories, or entire repository
+- **Multiple Formats**: Output in JSON or text format
+- **Config Support**: Use project-specific `.golangci.yml` or custom config files
+- **Batch Operations**: Execute multiple operations efficiently in a single call
+
+**Linting Parameters:**
+- `target`: File path, directory path, or `.` for entire repository (optional, defaults to `.`)
+- `format`: Output format - `json` or `text` (optional, defaults to `json`)
+- `config`: Path to golangci-lint config file (optional, defaults to `.golangci.yml` if exists)
+
+**Use Cases:**
+- **Code Quality**: Enforce Go code quality standards
+- **Pre-commit Checks**: Run linting before committing changes
+- **CI/CD Integration**: Automated code quality checks in pipelines
+- **Development Assistance**: Real-time feedback on code issues
+
+**Binary Management:**
+- Automatically downloads golangci-lint binary if not present
+- Caches binary in `~/.cache/mcp-lang-go/` directory
+- Supports custom golangci-lint version via environment variable
+- Cross-platform support (Linux, macOS, Windows)
+
 ## Prerequisites
 
 - Go 1.24.1 or higher
 - Git (for mcp-git server)
 - Bash (for mcp-bash server)
 - PowerShell (for mcp-powershell server) - Windows PowerShell 5.1+ or PowerShell Core 6.0+
-- PostgreSQL (for mcp-guidelines and mcp-postgres servers) - Database access
+- PostgreSQL (for mcp-guidelines, mcp-postgres, and mcp-documents servers) - Database access
+- golangci-lint (auto-managed by mcp-lang-go server)
 
 ## Installation
 
@@ -205,7 +294,7 @@ make mcp-servers
 ```
 
 This command will:
-1. Build all 9 MCP server executables (`mcp-filesystem`, `mcp-codebase`, `mcp-git`, `mcp-code-edit`, `mcp-bash`, `mcp-powershell`, `mcp-systeminfo`, `mcp-guidelines`, `mcp-postgres`)
+1. Build all 12 MCP server executables (`mcp-filesystem`, `mcp-codebase`, `mcp-git`, `mcp-code-edit`, `mcp-bash`, `mcp-powershell`, `mcp-systeminfo`, `mcp-guidelines`, `mcp-postgres`, `mcp-checkpoints`, `mcp-documents`, `mcp-lang-go`)
 2. Automatically detect the best installation directory (`~/bin`, `~/.local/bin`, or `/usr/local/bin`)
 3. Copy executables to the installation directory
 4. Set executable permissions
@@ -220,7 +309,7 @@ The Makefile provides several targets for managing MCP servers:
 - Convenience target that combines build and install
 
 **`make build-mcp-servers`** - Build only
-- Compiles all 9 MCP server executables
+- Compiles all 12 MCP server executables
 - Outputs executables to the project root directory
 - Does not install them
 
@@ -247,6 +336,9 @@ go build -o mcp-powershell ./cmd/mcp-powershell
 go build -o mcp-systeminfo ./cmd/mcp-systeminfo
 go build -o mcp-guidelines ./cmd/mcp-guidelines
 go build -o mcp-postgres ./cmd/mcp-postgres
+go build -o mcp-checkpoints ./cmd/mcp-checkpoints
+go build -o mcp-documents ./cmd/mcp-documents
+go build -o mcp-lang-go ./cmd/mcp-lang-go
 ```
 
 ### Installation Directory Selection
@@ -329,29 +421,44 @@ code-aria-internal_mcp/
 │   │   ├── audit.go
 │   │   ├── mcp.go
 │   │   └── types.go
-│   └── mcp-systeminfo/
-│       ├── main.go
-│       ├── systeminfo_operations.go
-│       ├── shell_info.go
-│       ├── devtools_info.go
-│       ├── network_info.go
-│       ├── repository_info.go
-│       ├── security.go
-│       ├── audit.go
-│       ├── mcp.go
-│       └── types.go
+│   ├── mcp-systeminfo/
+│   │   ├── main.go
+│   │   ├── systeminfo_operations.go
+│   │   ├── shell_info.go
+│   │   ├── devtools_info.go
+│   │   ├── network_info.go
+│   │   ├── repository_info.go
+│   │   ├── security.go
+│   │   ├── audit.go
+│   │   ├── mcp.go
+│   │   └── types.go
 │   ├── mcp-guidelines/
 │   │   ├── main.go
 │   │   ├── mcp.go
 │   │   ├── database.go
 │   │   └── types.go
+│   ├── mcp-postgres/
+│   │   ├── main.go
+│   │   ├── database.go
+│   │   ├── types.go
+│   │   └── README.md
+│   ├── mcp-checkpoints/
+│   │   ├── main.go
+│   │   ├── checkpoint_manager.go
+│   │   ├── checkpoint_operations.go
+│   │   ├── mcp.go
+│   │   └── types.go
 │   ├── mcp-documents/
-│   │   └── ...
-│   └── mcp-postgres/
+│   │   ├── main.go
+│   │   ├── document_repository.go
+│   │   ├── handlers.go
+│   │   ├── mcp.go
+│   │   └── types.go
+│   └── mcp-lang-go/
 │       ├── main.go
-│       ├── database.go
-│       ├── types.go
-│       └── README.md
+│       ├── lint.go
+│       ├── mcp.go
+│       └── types.go
 ├── Makefile
 ├── Makefile.windows
 ├── Makefile.unix
