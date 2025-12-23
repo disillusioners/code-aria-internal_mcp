@@ -10,6 +10,7 @@ import (
 
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	_ "modernc.org/sqlite"
 )
 
 func main() {
@@ -52,13 +53,25 @@ func main() {
 // initMasterDB initializes the master database connection and sets up the mcp_connections table
 func initMasterDB() error {
 	masterDSN := os.Getenv("POSTGRES_DB_DSN")
-	if masterDSN == "" {
-		return fmt.Errorf("POSTGRES_DB_DSN environment variable is required")
-	}
 
-	db, err := sql.Open("postgres", masterDSN)
-	if err != nil {
-		return fmt.Errorf("failed to open master database: %w", err)
+	var db *sql.DB
+	var err error
+
+	if masterDSN == "" {
+		// Fallback to SQLite
+		fmt.Fprintf(os.Stderr, "POSTGRES_DB_DSN not set, using SQLite database (mcp-postgres.db)\n")
+		db, err = sql.Open("sqlite", "./mcp-postgres.db")
+		if err != nil {
+			return fmt.Errorf("failed to open SQLite database: %w", err)
+		}
+		dbType = "sqlite"
+	} else {
+		// Use PostgreSQL
+		db, err = sql.Open("postgres", masterDSN)
+		if err != nil {
+			return fmt.Errorf("failed to open PostgreSQL database: %w", err)
+		}
+		dbType = "postgres"
 	}
 
 	if err := db.Ping(); err != nil {
@@ -73,9 +86,11 @@ func initMasterDB() error {
 		return fmt.Errorf("failed to ensure mcp_connections table: %w", err)
 	}
 
-	// Initialize master connection in table
-	if err := initMasterConnection(); err != nil {
-		return fmt.Errorf("failed to initialize master connection: %w", err)
+	// Initialize master connection in table (only for PostgreSQL)
+	if dbType == "postgres" {
+		if err := initMasterConnection(); err != nil {
+			return fmt.Errorf("failed to initialize master connection: %w", err)
+		}
 	}
 
 	return nil
@@ -151,24 +166,24 @@ Available operations:
 
 Database Operations:
 1. list_schemas - List all schemas in the database (excluding system schemas like pg_catalog, information_schema)
-   Parameters: connection_name (optional, defaults to 'master') - Name of the connection to use
+   Parameters: connection_name (optional) - Name of the connection to use. Defaults to 'master' in PostgreSQL mode, but must be explicitly provided in SQLite mode.
    Returns: Array of schema names
 
 2. list_tables - List all tables in a specified schema with metadata (schema name, table name, table type)
-   Parameters: connection_name (optional, defaults to 'master'), schema (optional, defaults to 'public')
+   Parameters: connection_name (optional, required in SQLite mode), schema (optional, defaults to 'public')
    Returns: Array of table objects with schema, table_name, and table_type fields
 
 3. describe_table - Get detailed table schema information including columns, data types, constraints, indexes, and metadata
-   Parameters: connection_name (optional, defaults to 'master'), table_name (required), schema (optional, defaults to 'public')
+   Parameters: connection_name (optional, required in SQLite mode), table_name (required), schema (optional, defaults to 'public')
    Returns: Table schema object with columns array containing name, type, nullable, default, constraints, indexes, and position
 
 4. query - Execute a SELECT query to retrieve data from the database
-   Parameters: connection_name (optional, defaults to 'master'), query (required, must be a SELECT statement), params (optional array for parameterized queries), limit (optional, default 1000, max 10000)
+   Parameters: connection_name (optional, required in SQLite mode), query (required, must be a SELECT statement), params (optional array for parameterized queries), limit (optional, default 1000, max 10000)
    Returns: Array of result objects (one per row) with column names as keys
    Security: Only SELECT queries are allowed. INSERT, UPDATE, DELETE, DROP, and other modification operations are rejected.
 
 5. get_connection_info - Get connection information including host, port, database, user (password is masked for security)
-   Parameters: connection_name (optional, defaults to 'master')
+   Parameters: connection_name (optional, required in SQLite mode)
    Returns: Connection info object with masked connection string and parsed components (host, port, database, user, sslmode, description)
 
 Connection Management Operations:
@@ -196,15 +211,14 @@ Connection Management Operations:
     Parameters: old_name (required), new_name (required)
     Returns: Renamed connection object (password masked)
 
-Connection Management: Connections are stored in the master database (configured via POSTGRES_DB_DSN). The master connection is automatically created on startup with the name 'master'. Use connection management operations to add, view, update, or remove connections. For database operations, if connection_name is not provided, it defaults to 'master'.
+Connection Management: Connections are stored in the master database (configured via POSTGRES_DB_DSN) or in SQLite fallback mode (when POSTGRES_DB_DSN is not set). In PostgreSQL mode, the master connection is automatically created on startup with the name 'master'. In SQLite mode, you must explicitly create connections and always provide connection_name for database operations. Use connection management operations to add, view, update, or remove connections.
 
 Examples:
-- List schemas (uses master by default): {"type": "list_schemas"}
-- List schemas with explicit connection: {"type": "list_schemas", "connection_name": "master"}
-- List tables: {"type": "list_tables", "schema": "public"}
-- Describe a table: {"type": "describe_table", "table_name": "users", "schema": "public"}
-- Query with parameters: {"type": "query", "query": "SELECT * FROM users WHERE id = $1", "params": [123], "limit": 10}
-- Query different database: {"type": "query", "connection_name": "prod_db", "query": "SELECT * FROM products LIMIT 10"}
+- List schemas (uses master by default in PostgreSQL mode): {"type": "list_schemas"}
+- List schemas with explicit connection: {"type": "list_schemas", "connection_name": "my_connection"}
+- List tables: {"type": "list_tables", "connection_name": "my_connection", "schema": "public"}
+- Describe a table: {"type": "describe_table", "connection_name": "my_connection", "table_name": "users", "schema": "public"}
+- Query with parameters: {"type": "query", "connection_name": "my_connection", "query": "SELECT * FROM users WHERE id = $1", "params": [123], "limit": 10}
 - Create connection: {"type": "create_connection", "name": "prod_db", "host": "prod.example.com", "database": "mydb", "user": "myuser", "password": "mypass"}
 - List connections: {"type": "list_connections"}
 - Get connection: {"type": "get_connection", "name": "prod_db"}

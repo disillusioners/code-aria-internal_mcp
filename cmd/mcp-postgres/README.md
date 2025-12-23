@@ -19,22 +19,87 @@ The `mcp-postgres` server connects to multiple PostgreSQL databases through a co
 - **Result limiting** for safety
 - **Password masking** in all responses
 
+## Operating Modes
+
+The mcp-postgres server operates in two distinct modes depending on whether the `POSTGRES_DB_DSN` environment variable is set:
+
+### PostgreSQL Mode (Default)
+
+When `POSTGRES_DB_DSN` is set to a valid PostgreSQL connection string:
+
+- A master PostgreSQL database stores connection configurations
+- The "master" connection is automatically created on startup
+- Database operations can optionally specify `connection_name` (defaults to "master")
+- Best for: Production environments with existing PostgreSQL infrastructure
+
+**Example:**
+```bash
+export POSTGRES_DB_DSN="postgres://user:pass@localhost:5432/masterdb"
+./mcp-postgres
+```
+
+### SQLite Fallback Mode
+
+When `POSTGRES_DB_DSN` is empty, unset, or not provided:
+
+- An embedded SQLite database (`mcp-postgres.db`) stores connections in the current directory
+- No master connection exists
+- Database operations **must** specify `connection_name` (required parameter)
+- Best for: Development, testing, or scenarios without PostgreSQL
+
+**Example:**
+```bash
+unset POSTGRES_DB_DSN  # or leave empty
+./mcp-postgres
+```
+
+**Key Differences:**
+
+| Feature | PostgreSQL Mode | SQLite Fallback Mode |
+|---------|----------------|---------------------|
+| Database | PostgreSQL server | Embedded SQLite file |
+| Storage | External PostgreSQL | `mcp-postgres.db` file |
+| Master Connection | Auto-created as "master" | Does not exist |
+| connection_name Parameter | Optional (defaults to "master") | **Required** |
+| Default Connection | Available (master) | None - must create explicitly |
+| Use Case | Production, shared environments | Development, local testing |
+
+**Important:** In SQLite mode, you must always create connections first using `create_connection` and then reference them by name in all database operations.
+
 ## Prerequisites
 
 - Go 1.24.1 or higher
-- PostgreSQL database (for master connection)
-- Database connection string for master database
+- PostgreSQL database (for master connection) OR SQLite for fallback mode
+- Database connection string for master database (optional for SQLite fallback)
 
 ## Configuration
 
 The server requires a master database connection string via the `POSTGRES_DB_DSN` environment variable. This database is used to store connection configurations in the `mcp_connections` table.
+
+### SQLite Fallback Mode
+
+If `POSTGRES_DB_DSN` is not set or left empty, the server will automatically use an embedded SQLite database (`mcp-postgres.db`) in the current working directory instead of PostgreSQL. This fallback mode is useful for:
+
+- Local development without requiring a PostgreSQL server
+- Testing and experimentation
+- Scenarios where PostgreSQL is not available
+
+**Key differences in SQLite fallback mode:**
+- Database file: `mcp-postgres.db` (created automatically)
+- No master connection is created (only applicable in PostgreSQL mode)
+- All other features work identically (connection management, querying, etc.)
+- Data persists between runs in the local file
 
 ### Environment Variables
 
 You can set the environment variable directly:
 
 ```bash
+# Use PostgreSQL
 export POSTGRES_DB_DSN="postgres://user:password@host:port/dbname?sslmode=disable"
+
+# Or use SQLite fallback (leave empty or unset)
+unset POSTGRES_DB_DSN
 ```
 
 Or use a `.env` file (recommended for development):
@@ -44,9 +109,13 @@ Or use a `.env` file (recommended for development):
    cp env.example .env
    ```
 
-2. Edit `.env` and update the master database connection string:
+2. Edit `.env`:
    ```bash
+   # For PostgreSQL mode:
    POSTGRES_DB_DSN=postgres://user:password@host:port/dbname?sslmode=disable
+
+   # For SQLite fallback mode:
+   POSTGRES_DB_DSN=
    ```
 
 ### Connection String Format
@@ -64,9 +133,16 @@ Common parameters:
 ### Initialization
 
 On first startup, the server will:
+
+**PostgreSQL Mode (POSTGRES_DB_DSN is set):**
 1. Connect to the master database using `POSTGRES_DB_DSN`
 2. Create the `mcp_connections` table if it doesn't exist
 3. Automatically add the master connection as "master" in the connections table
+
+**SQLite Fallback Mode (POSTGRES_DB_DSN is empty/not set):**
+1. Create/open SQLite database file `mcp-postgres.db` in the current directory
+2. Create the `mcp_connections` table if it doesn't exist
+3. No master connection is created (you can add connections via `create_connection`)
 
 ## MCP Tools
 
@@ -79,7 +155,9 @@ The server exposes a single `apply_operations` tool that supports batch executio
 List all schemas in the database (excluding system schemas).
 
 **Parameters:**
-- `connection_name` (string, required): Name of the connection to use (e.g., "master")
+- `connection_name` (string, optional): Name of the connection to use.
+  - **PostgreSQL mode**: Defaults to 'master' if not provided
+  - **SQLite mode**: Required (no default connection exists)
 
 **Returns:** Array of schema names
 
@@ -87,7 +165,7 @@ List all schemas in the database (excluding system schemas).
 ```json
 {
   "type": "list_schemas",
-  "connection_name": "master"
+  "connection_name": "my_connection"
 }
 ```
 
@@ -96,7 +174,9 @@ List all schemas in the database (excluding system schemas).
 List tables in a schema.
 
 **Parameters:**
-- `connection_name` (string, required): Name of the connection to use
+- `connection_name` (string, optional): Name of the connection to use.
+  - **PostgreSQL mode**: Defaults to 'master' if not provided
+  - **SQLite mode**: Required (no default connection exists)
 - `schema` (string, optional): Schema name (defaults to 'public')
 
 **Returns:** Array of table objects with schema, table_name, and table_type
@@ -105,7 +185,7 @@ List tables in a schema.
 ```json
 {
   "type": "list_tables",
-  "connection_name": "master",
+  "connection_name": "my_connection",
   "schema": "public"
 }
 ```
@@ -115,7 +195,9 @@ List tables in a schema.
 Get detailed table schema information including columns, types, constraints, and indexes.
 
 **Parameters:**
-- `connection_name` (string, required): Name of the connection to use
+- `connection_name` (string, optional): Name of the connection to use.
+  - **PostgreSQL mode**: Defaults to 'master' if not provided
+  - **SQLite mode**: Required (no default connection exists)
 - `table_name` (string, required): Table name
 - `schema` (string, optional): Schema name (defaults to 'public')
 
@@ -125,7 +207,7 @@ Get detailed table schema information including columns, types, constraints, and
 ```json
 {
   "type": "describe_table",
-  "connection_name": "master",
+  "connection_name": "my_connection",
   "table_name": "users",
   "schema": "public"
 }
@@ -136,7 +218,9 @@ Get detailed table schema information including columns, types, constraints, and
 Execute a SELECT query.
 
 **Parameters:**
-- `connection_name` (string, required): Name of the connection to use
+- `connection_name` (string, optional): Name of the connection to use.
+  - **PostgreSQL mode**: Defaults to 'master' if not provided
+  - **SQLite mode**: Required (no default connection exists)
 - `query` (string, required): SELECT query to execute
 - `params` (array, optional): Query parameters for parameterized queries
 - `limit` (integer, optional): Maximum rows to return (default: 1000, max: 10000)
@@ -147,7 +231,7 @@ Execute a SELECT query.
 ```json
 {
   "type": "query",
-  "connection_name": "master",
+  "connection_name": "my_connection",
   "query": "SELECT id, name, email FROM users WHERE active = $1",
   "params": [true],
   "limit": 100
@@ -159,7 +243,9 @@ Execute a SELECT query.
 Get connection information including host, port, database, user (password is masked for security).
 
 **Parameters:**
-- `connection_name` (string, required): Name of the connection to query
+- `connection_name` (string, optional): Name of the connection to query.
+  - **PostgreSQL mode**: Defaults to 'master' if not provided
+  - **SQLite mode**: Required (no default connection exists)
 
 **Returns:** Connection info object with masked connection string and parsed components
 
@@ -167,7 +253,7 @@ Get connection information including host, port, database, user (password is mas
 ```json
 {
   "type": "get_connection_info",
-  "connection_name": "master"
+  "connection_name": "my_connection"
 }
 ```
 
@@ -292,7 +378,12 @@ go build -o mcp-postgres ./cmd/mcp-postgres
 Set the master database connection string and run:
 
 ```bash
+# PostgreSQL mode
 export POSTGRES_DB_DSN="postgres://user:password@localhost:5432/masterdb?sslmode=disable"
+./mcp-postgres
+
+# SQLite fallback mode (no PostgreSQL required)
+unset POSTGRES_DB_DSN
 ./mcp-postgres
 ```
 
@@ -313,22 +404,22 @@ You can execute multiple operations in a single call:
       "operations": [
         {
           "type": "list_schemas",
-          "connection_name": "master"
+          "connection_name": "my_connection"
         },
         {
           "type": "list_tables",
-          "connection_name": "master",
+          "connection_name": "my_connection",
           "schema": "public"
         },
         {
           "type": "describe_table",
-          "connection_name": "master",
+          "connection_name": "my_connection",
           "table_name": "users",
           "schema": "public"
         },
         {
           "type": "query",
-          "connection_name": "master",
+          "connection_name": "my_connection",
           "query": "SELECT COUNT(*) as total FROM users",
           "limit": 1
         }
@@ -338,29 +429,46 @@ You can execute multiple operations in a single call:
 }
 ```
 
+**Note:** In SQLite mode, you must create connections first before using them. In PostgreSQL mode, the "master" connection is available by default.
+
 ### Connection Management Workflow
 
+**PostgreSQL Mode:**
 1. **Start the server** with `POSTGRES_DB_DSN` pointing to your master database
 2. **Master connection** is automatically created as "master"
-3. **Add additional connections** using `create_connection`:
-   ```json
-   {
-     "type": "create_connection",
-     "name": "prod_db",
-     "host": "prod.example.com",
-     "database": "production",
-     "user": "readonly",
-     "password": "secret"
-   }
-   ```
-4. **Use connections** by name in database operations:
-   ```json
-   {
-     "type": "query",
-     "connection_name": "prod_db",
-     "query": "SELECT * FROM users LIMIT 10"
-   }
-   ```
+3. **Use database operations** without specifying connection_name (defaults to "master")
+4. **Add additional connections** using `create_connection` if needed
+5. **Use connections** by name in database operations
+
+**SQLite Fallback Mode:**
+1. **Start the server** without `POSTGRES_DB_DSN` (or leave it empty)
+2. **SQLite database** is created as `mcp-postgres.db` in the current directory
+3. **Create connections** using `create_connection` (no master connection exists)
+4. **Always specify connection_name** in database operations (required parameter)
+5. **Use connections** by name in database operations
+
+**Creating a connection (works in both modes):**
+```json
+{
+  "type": "create_connection",
+  "name": "prod_db",
+  "host": "prod.example.com",
+  "database": "production",
+  "user": "readonly",
+  "password": "secret"
+}
+```
+
+**Using a connection:**
+```json
+{
+  "type": "query",
+  "connection_name": "prod_db",
+  "query": "SELECT * FROM users LIMIT 10"
+}
+```
+
+**Important:** In SQLite mode, always specify `connection_name`. If you don't, you'll get an error: `"connection_name is required when using SQLite mode (no default 'master' connection exists)"`
 
 ## Security
 
@@ -423,6 +531,23 @@ If you see "connection not found" errors:
 - Use `list_connections` to see all available connections
 - Ensure the connection was created successfully
 
+### Missing connection_name Parameter
+
+If you see "connection_name is required when using SQLite mode" errors:
+- You're running in SQLite fallback mode (POSTGRES_DB_DSN is not set)
+- In SQLite mode, you must always specify `connection_name` in database operations
+- First create a connection using `create_connection`, then use it by name
+- Examples of operations that require connection_name in SQLite mode:
+  - `list_schemas`
+  - `list_tables`
+  - `describe_table`
+  - `query`
+  - `get_connection_info`
+
+**To fix:** Either:
+1. Add `connection_name` to your operations (recommended for SQLite mode)
+2. Or set `POSTGRES_DB_DSN` to use PostgreSQL mode with a default master connection
+
 ### Query Rejected Errors
 
 If queries are rejected:
@@ -440,11 +565,18 @@ If queries return empty results:
 
 ### Master Connection Issues
 
+**PostgreSQL Mode:**
 If the master connection is not available:
 - Check that `POSTGRES_DB_DSN` is set correctly
 - Verify the master database is accessible
 - Check server logs for initialization errors
 - The master connection should be automatically created on startup
+
+**SQLite Fallback Mode:**
+- The master connection does not exist in SQLite mode
+- You need to create connections explicitly using `create_connection`
+- Check that `mcp-postgres.db` file is writable in the current directory
+- Verify that SQLite mode is active (check stderr for "using SQLite database" message)
 
 ## License
 

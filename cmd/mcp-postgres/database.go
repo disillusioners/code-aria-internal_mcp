@@ -12,9 +12,29 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
+	_ "modernc.org/sqlite"
 )
 
-var masterDB *sql.DB
+var (
+	masterDB *sql.DB
+	dbType   string // "postgres" or "sqlite"
+)
+
+// Helper function to get the appropriate timestamp function based on database type
+func getTimestampExpr() string {
+	if dbType == "sqlite" {
+		return "datetime('now')"
+	}
+	return "NOW()"
+}
+
+// Helper function to get the appropriate parameter placeholder based on database type
+func getParam(index int) string {
+	if dbType == "sqlite" {
+		return "?"
+	}
+	return fmt.Sprintf("$%d", index)
+}
 
 // ensureMCPConnectionsTable creates the mcp_connections table if it doesn't exist
 func ensureMCPConnectionsTable() error {
@@ -22,21 +42,43 @@ func ensureMCPConnectionsTable() error {
 		return fmt.Errorf("master database connection not initialized")
 	}
 
-	createTableSQL := `
-		CREATE TABLE IF NOT EXISTS mcp_connections (
-			id SERIAL PRIMARY KEY,
-			name VARCHAR(255) UNIQUE NOT NULL,
-			host VARCHAR(255) NOT NULL,
-			port INTEGER NOT NULL DEFAULT 5432,
-			database VARCHAR(255) NOT NULL,
-			user_name VARCHAR(255) NOT NULL,
-			password VARCHAR(255) NOT NULL,
-			sslmode VARCHAR(50) DEFAULT 'disable',
-			description TEXT,
-			created_at TIMESTAMP DEFAULT NOW(),
-			updated_at TIMESTAMP DEFAULT NOW()
-		)
-	`
+	var createTableSQL string
+
+	if dbType == "sqlite" {
+		// SQLite-compatible schema
+		createTableSQL = `
+			CREATE TABLE IF NOT EXISTS mcp_connections (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				name TEXT UNIQUE NOT NULL,
+				host TEXT NOT NULL,
+				port INTEGER NOT NULL DEFAULT 5432,
+				database TEXT NOT NULL,
+				user_name TEXT NOT NULL,
+				password TEXT NOT NULL,
+				sslmode TEXT DEFAULT 'disable',
+				description TEXT,
+				created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+				updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+			)
+		`
+	} else {
+		// PostgreSQL schema (existing)
+		createTableSQL = `
+			CREATE TABLE IF NOT EXISTS mcp_connections (
+				id SERIAL PRIMARY KEY,
+				name VARCHAR(255) UNIQUE NOT NULL,
+				host VARCHAR(255) NOT NULL,
+				port INTEGER NOT NULL DEFAULT 5432,
+				database VARCHAR(255) NOT NULL,
+				user_name VARCHAR(255) NOT NULL,
+				password VARCHAR(255) NOT NULL,
+				sslmode VARCHAR(50) DEFAULT 'disable',
+				description TEXT,
+				created_at TIMESTAMP DEFAULT NOW(),
+				updated_at TIMESTAMP DEFAULT NOW()
+			)
+		`
+	}
 
 	_, err := masterDB.Exec(createTableSQL)
 	if err != nil {
@@ -50,6 +92,11 @@ func ensureMCPConnectionsTable() error {
 func initMasterConnection() error {
 	if masterDB == nil {
 		return fmt.Errorf("master database connection not initialized")
+	}
+
+	// Skip for SQLite - no master connection to initialize
+	if dbType == "sqlite" {
+		return nil
 	}
 
 	// Get master connection string from environment
@@ -93,20 +140,49 @@ func initMasterConnection() error {
 
 	if exists {
 		// Update existing master connection
-		_, err = masterDB.Exec(`
-			UPDATE mcp_connections 
-			SET host = $1, port = $2, database = $3, user_name = $4, password = $5, sslmode = $6, updated_at = NOW()
-			WHERE name = 'master'
-		`, host, port, database, user, password, sslmode)
+		var updateSQL string
+		if dbType == "sqlite" {
+			updateSQL = `
+				UPDATE mcp_connections
+				SET host = ?, port = ?, database = ?, user_name = ?, password = ?, sslmode = ?, updated_at = datetime('now')
+				WHERE name = 'master'
+			`
+		} else {
+			updateSQL = `
+				UPDATE mcp_connections
+				SET host = $1, port = $2, database = $3, user_name = $4, password = $5, sslmode = $6, updated_at = NOW()
+				WHERE name = 'master'
+			`
+		}
+
+		if dbType == "sqlite" {
+			_, err = masterDB.Exec(updateSQL, host, port, database, user, password, sslmode)
+		} else {
+			_, err = masterDB.Exec(updateSQL, host, port, database, user, password, sslmode)
+		}
 		if err != nil {
 			return fmt.Errorf("failed to update master connection: %w", err)
 		}
 	} else {
 		// Insert new master connection
-		_, err = masterDB.Exec(`
-			INSERT INTO mcp_connections (name, host, port, database, user_name, password, sslmode, description)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		`, "master", host, port, database, user, password, sslmode, "Master connection from POSTGRES_DB_DSN")
+		var insertSQL string
+		if dbType == "sqlite" {
+			insertSQL = `
+				INSERT INTO mcp_connections (name, host, port, database, user_name, password, sslmode, description)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			`
+		} else {
+			insertSQL = `
+				INSERT INTO mcp_connections (name, host, port, database, user_name, password, sslmode, description)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			`
+		}
+
+		if dbType == "sqlite" {
+			_, err = masterDB.Exec(insertSQL, "master", host, port, database, user, password, sslmode, "Master connection from POSTGRES_DB_DSN")
+		} else {
+			_, err = masterDB.Exec(insertSQL, "master", host, port, database, user, password, sslmode, "Master connection from POSTGRES_DB_DSN")
+		}
 		if err != nil {
 			return fmt.Errorf("failed to insert master connection: %w", err)
 		}
@@ -186,7 +262,11 @@ func getConnectionStringByName(connectionName string) (string, error) {
 func getConnectionString(params map[string]interface{}) (string, error) {
 	connectionName, ok := params["connection_name"].(string)
 	if !ok || connectionName == "" {
-		connectionName = "master" // Default to master connection
+		// In SQLite mode, there is no master connection
+		if dbType == "sqlite" {
+			return "", fmt.Errorf("connection_name is required when using SQLite mode (no default 'master' connection exists)")
+		}
+		connectionName = "master" // Default to master connection for PostgreSQL
 	}
 
 	return getConnectionStringByName(connectionName)
@@ -218,7 +298,11 @@ func maskPasswordInConnectionString(connStr string) string {
 func toolGetConnectionInfo(params map[string]interface{}) (string, error) {
 	connectionName, ok := params["connection_name"].(string)
 	if !ok || connectionName == "" {
-		connectionName = "master" // Default to master connection
+		// In SQLite mode, there is no master connection
+		if dbType == "sqlite" {
+			return "", fmt.Errorf("connection_name is required when using SQLite mode (no default 'master' connection exists)")
+		}
+		connectionName = "master" // Default to master connection for PostgreSQL
 	}
 
 	config, err := getConnectionByName(connectionName)
@@ -880,48 +964,48 @@ func toolUpdateConnection(params map[string]interface{}) (string, error) {
 	argIndex := 1
 
 	if host, ok := params["host"].(string); ok && host != "" {
-		updates = append(updates, fmt.Sprintf("host = $%d", argIndex))
+		updates = append(updates, fmt.Sprintf("host = %s", getParam(argIndex)))
 		args = append(args, host)
 		argIndex++
 		existing.Host = host
 	}
 
 	if port, ok := params["port"].(float64); ok {
-		updates = append(updates, fmt.Sprintf("port = $%d", argIndex))
+		updates = append(updates, fmt.Sprintf("port = %s", getParam(argIndex)))
 		args = append(args, int(port))
 		argIndex++
 		existing.Port = int(port)
 	}
 
 	if database, ok := params["database"].(string); ok && database != "" {
-		updates = append(updates, fmt.Sprintf("database = $%d", argIndex))
+		updates = append(updates, fmt.Sprintf("database = %s", getParam(argIndex)))
 		args = append(args, database)
 		argIndex++
 		existing.Database = database
 	}
 
 	if user, ok := params["user"].(string); ok && user != "" {
-		updates = append(updates, fmt.Sprintf(`user_name = $%d`, argIndex))
+		updates = append(updates, fmt.Sprintf("user_name = %s", getParam(argIndex)))
 		args = append(args, user)
 		argIndex++
 		existing.User = user
 	}
 
 	if password, ok := params["password"].(string); ok && password != "" {
-		updates = append(updates, fmt.Sprintf("password = $%d", argIndex))
+		updates = append(updates, fmt.Sprintf("password = %s", getParam(argIndex)))
 		args = append(args, password)
 		argIndex++
 	}
 
 	if sslmode, ok := params["sslmode"].(string); ok {
-		updates = append(updates, fmt.Sprintf("sslmode = $%d", argIndex))
+		updates = append(updates, fmt.Sprintf("sslmode = %s", getParam(argIndex)))
 		args = append(args, sslmode)
 		argIndex++
 		existing.SSLMode = sslmode
 	}
 
 	if description, ok := params["description"].(string); ok {
-		updates = append(updates, fmt.Sprintf("description = $%d", argIndex))
+		updates = append(updates, fmt.Sprintf("description = %s", getParam(argIndex)))
 		args = append(args, description)
 		argIndex++
 		existing.Description = description
@@ -949,15 +1033,16 @@ func toolUpdateConnection(params map[string]interface{}) (string, error) {
 	}
 
 	// Add updated_at and name for WHERE clause
-	updates = append(updates, fmt.Sprintf("updated_at = NOW()"))
+	updates = append(updates, fmt.Sprintf("updated_at = %s", getTimestampExpr()))
 	args = append(args, name)
+	argIndex++
 
 	query := fmt.Sprintf(`
 		UPDATE mcp_connections
 		SET %s
-		WHERE name = $%d
+		WHERE name = %s
 		RETURNING updated_at
-	`, strings.Join(updates, ", "), argIndex)
+	`, strings.Join(updates, ", "), getParam(argIndex))
 
 	var updatedAt time.Time
 	err = masterDB.QueryRow(query, args...).Scan(&updatedAt)
@@ -1071,11 +1156,11 @@ func toolRenameConnection(params map[string]interface{}) (string, error) {
 	}
 
 	// Update the connection name
-	_, err = masterDB.Exec(`
-		UPDATE mcp_connections 
-		SET name = $1, updated_at = NOW()
-		WHERE name = $2
-	`, newName, oldName)
+	_, err = masterDB.Exec(fmt.Sprintf(`
+		UPDATE mcp_connections
+		SET name = %s, updated_at = %s
+		WHERE name = %s
+	`, getParam(1), getTimestampExpr(), getParam(2)), newName, oldName)
 	if err != nil {
 		return "", fmt.Errorf("failed to rename connection: %w", err)
 	}
