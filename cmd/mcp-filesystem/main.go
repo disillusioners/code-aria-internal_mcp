@@ -74,6 +74,16 @@ func handleInitialize(scanner *bufio.Scanner, encoder *json.Encoder) error {
 		return fmt.Errorf("no initialized notification")
 	}
 
+	var initializedMsg MCPMessage
+	if err := json.Unmarshal(scanner.Bytes(), &initializedMsg); err != nil {
+		return fmt.Errorf("failed to parse initialized notification: %w", err)
+	}
+
+	// Validate that this is the initialized notification
+	if initializedMsg.Method != "notifications/initialized" {
+		return fmt.Errorf("expected initialized notification, got method: %s", initializedMsg.Method)
+	}
+
 	return nil
 }
 
@@ -97,10 +107,10 @@ func handleToolsList(msg *MCPMessage, encoder *json.Encoder) {
 				"type": "object",
 				"properties": map[string]interface{}{
 					"operations": map[string]interface{}{
-						"type": "array",
+						"type":        "array",
 						"description": "List of operations to execute",
 						"items": map[string]interface{}{
-							"type": "object",
+							"type":        "object",
 							"description": "Operation object with 'type' field and operation-specific parameters",
 							"properties": map[string]interface{}{
 								"type": map[string]interface{}{
@@ -161,39 +171,35 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 	}
 
 	var results []map[string]interface{}
-	var successCount int
-	var errorCount int
 
-	for i, op := range operations {
+	for _, op := range operations {
 		opMap, ok := op.(map[string]interface{})
 		if !ok {
 			results = append(results, map[string]interface{}{
-				"index": i,
-				"type":  "unknown",
-				"success": false,
-				"error":  "Invalid operation format",
+				"operation": "unknown",
+				"params":    map[string]interface{}{},
+				"status":    "Error",
+				"message":   "Invalid operation format",
 			})
-			errorCount++
 			continue
 		}
 
 		opType, ok := opMap["type"].(string)
 		if !ok {
 			results = append(results, map[string]interface{}{
-				"index": i,
-				"type":  "unknown",
-				"success": false,
-				"error":  "Operation type is required",
+				"operation": "unknown",
+				"params":    map[string]interface{}{},
+				"status":    "Error",
+				"message":   "Operation type is required",
 			})
-			errorCount++
 			continue
 		}
 
-		// Extract operation-specific arguments
-		opArgs := make(map[string]interface{})
+		// Extract operation-specific arguments as params
+		params := make(map[string]interface{})
 		for k, v := range opMap {
 			if k != "type" {
-				opArgs[k] = v
+				params[k] = v
 			}
 		}
 
@@ -203,28 +209,29 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 
 		switch opType {
 		case "read_file":
-			result, err = toolReadFile(opArgs)
+			result, err = toolReadFile(params)
 		case "list_directory":
-			result, err = toolListDirectory(opArgs)
+			result, err = toolListDirectory(params)
 		case "get_file_tree":
-			result, err = toolGetFileTree(opArgs)
+			result, err = toolGetFileTree(params)
 		case "file_exists":
-			result, err = toolFileExists(opArgs)
+			result, err = toolFileExists(params)
 		case "create_directory":
-			result, err = toolCreateDirectory(opArgs)
+			result, err = toolCreateDirectory(params)
 		default:
 			err = fmt.Errorf("unknown operation type: %s", opType)
 		}
 
+		// Optimize params before adding to results
+		optimizedParams := optimizeParams(opType, params)
+
 		if err != nil {
 			results = append(results, map[string]interface{}{
-				"index": i,
-				"type":  opType,
-				"success": false,
-				"error":  err.Error(),
-				"result": nil,
+				"operation": opType,
+				"params":    optimizedParams,
+				"status":    "Error",
+				"message":   err.Error(),
 			})
-			errorCount++
 		} else {
 			// Parse JSON result if possible, otherwise use as string
 			var parsedResult interface{}
@@ -236,30 +243,73 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 			}
 
 			results = append(results, map[string]interface{}{
-				"index": i,
-				"type":  opType,
-				"success": true,
-				"result": parsedResult,
-				"error":  nil,
+				"operation": opType,
+				"params":    optimizedParams,
+				"status":    "Success",
+				"result":    parsedResult,
 			})
-			successCount++
 		}
 	}
 
-	// Create response
-	summary := fmt.Sprintf("Batch operations completed: %d succeeded, %d failed", successCount, errorCount)
+	// Serialize results to JSON text for MCP-compliant response format
+	resultsJSON, err := json.Marshal(map[string]interface{}{
+		"results": results,
+	})
+	if err != nil {
+		sendError(encoder, msg.ID, -32700, fmt.Sprintf("Failed to marshal results: %v", err), nil)
+		return
+	}
+
+	// Return results in MCP-compliant format using ToolsCallResponse
 	response := MCPMessage{
 		JSONRPC: "2.0",
 		ID:      msg.ID,
-		Result: map[string]interface{}{
-			"content": []Content{
-				{Type: "text", Text: summary},
+		Result: ToolsCallResponse{
+			Content: []Content{
+				{
+					Type: "text",
+					Text: string(resultsJSON),
+				},
 			},
-			"results": results,
+			IsError: false,
 		},
 	}
 
 	encoder.Encode(response)
+}
+
+// optimizeParams optimizes params for response by truncating long string values (> 20 lines)
+func optimizeParams(opType string, params map[string]interface{}) map[string]interface{} {
+	optimized := make(map[string]interface{})
+	
+	// Fields to always preserve as-is (metadata)
+	preserveFields := map[string]bool{
+		"path":        true,
+		"root_path":   true,
+		"max_depth":   true,
+	}
+	
+	// For filesystem operations, truncate long string values (> 20 lines)
+	for k, v := range params {
+		if preserveFields[k] {
+			// Always preserve metadata fields as-is
+			optimized[k] = v
+		} else if strVal, ok := v.(string); ok {
+			// Truncate string values > 20 lines
+			lines := strings.Split(strVal, "\n")
+			if len(lines) > 20 {
+				truncated := strings.Join(lines[:20], "\n")
+				optimized[k] = fmt.Sprintf("%s\n... (truncated, %d total lines)", truncated, len(lines))
+			} else {
+				optimized[k] = v
+			}
+		} else {
+			// Preserve non-string values as-is
+			optimized[k] = v
+		}
+	}
+	
+	return optimized
 }
 
 func toolReadFile(args map[string]interface{}) (string, error) {
@@ -285,15 +335,15 @@ func toolListDirectory(args map[string]interface{}) (string, error) {
 	}
 
 	fullPath := resolvePath(path)
-	
+
 	// Check if path exists first
 	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-		return "", fmt.Errorf("directory does not exist: %s. Use 'file_exists' to check if a directory exists, or use 'create_directory' to create it first", path)
+		return "", fmt.Errorf("directory does not exist: %s", path)
 	}
-	
+
 	entries, err := os.ReadDir(fullPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to list directory '%s': %w. Hint: Use 'file_exists' to check if the directory exists, or 'create_directory' to create it", path, err)
+		return "", fmt.Errorf("failed to list directory '%s': %w", path, err)
 	}
 
 	var names []string
@@ -308,10 +358,16 @@ func toolListDirectory(args map[string]interface{}) (string, error) {
 	return string(result), nil
 }
 
+func shouldSkipDir(dirName string) bool {
+	// Skip hidden directories (starting with dot)
+	return len(dirName) > 0 && dirName[0] == '.'
+}
+
 func toolGetFileTree(args map[string]interface{}) (string, error) {
-	rootPath, ok := args["root_path"].(string)
-	if !ok {
-		return "", fmt.Errorf("root_path is required")
+	// root_path is optional, default to "." (repo root)
+	rootPath := "."
+	if rp, ok := args["root_path"].(string); ok && rp != "" {
+		rootPath = rp
 	}
 
 	maxDepth := 10
@@ -325,6 +381,11 @@ func toolGetFileTree(args map[string]interface{}) (string, error) {
 	err := filepath.WalkDir(fullPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+
+		// Skip hidden directories (including .git)
+		if d.IsDir() && shouldSkipDir(d.Name()) {
+			return filepath.SkipDir
 		}
 
 		rel, _ := filepath.Rel(fullPath, path)
@@ -377,12 +438,12 @@ func toolFileExists(args map[string]interface{}) (string, error) {
 
 	fullPath := resolvePath(path)
 	info, err := os.Stat(fullPath)
-	
+
 	result := map[string]interface{}{
-		"path":    path,
-		"exists":  err == nil,
+		"path":   path,
+		"exists": err == nil,
 	}
-	
+
 	if err == nil {
 		result["is_file"] = !info.IsDir()
 		result["is_directory"] = info.IsDir()
@@ -408,7 +469,7 @@ func toolCreateDirectory(args map[string]interface{}) (string, error) {
 	}
 
 	fullPath := resolvePath(path)
-	
+
 	// Check if it already exists
 	if info, err := os.Stat(fullPath); err == nil {
 		if info.IsDir() {
@@ -423,7 +484,7 @@ func toolCreateDirectory(args map[string]interface{}) (string, error) {
 		}
 		return "", fmt.Errorf("path exists but is not a directory: %s", path)
 	}
-	
+
 	// Create directory recursively
 	if err := os.MkdirAll(fullPath, 0755); err != nil {
 		return "", fmt.Errorf("failed to create directory '%s': %w", path, err)

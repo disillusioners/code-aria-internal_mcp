@@ -68,6 +68,16 @@ func handleInitialize(scanner *bufio.Scanner, encoder *json.Encoder) error {
 		return fmt.Errorf("no initialized notification")
 	}
 
+	var initializedMsg MCPMessage
+	if err := json.Unmarshal(scanner.Bytes(), &initializedMsg); err != nil {
+		return fmt.Errorf("failed to parse initialized notification: %w", err)
+	}
+
+	// Validate that this is the initialized notification
+	if initializedMsg.Method != "notifications/initialized" {
+		return fmt.Errorf("expected initialized notification, got method: %s", initializedMsg.Method)
+	}
+
 	return nil
 }
 
@@ -99,7 +109,7 @@ func handleToolsList(msg *MCPMessage, encoder *json.Encoder) {
 							"properties": map[string]interface{}{
 								"type": map[string]interface{}{
 									"type":        "string",
-									"description": "Operation type: apply_diff, replace_code, create_file, delete_file",
+									"description": "Operation type: apply_diff, replace_code, create_file, delete_file, rename_file, move_file, copy_file",
 								},
 							},
 						},
@@ -155,39 +165,35 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 	}
 
 	var results []map[string]interface{}
-	var successCount int
-	var errorCount int
 
-	for i, op := range operations {
+	for _, op := range operations {
 		opMap, ok := op.(map[string]interface{})
 		if !ok {
 			results = append(results, map[string]interface{}{
-				"index":   i,
-				"type":    "unknown",
-				"success": false,
-				"error":   "Invalid operation format",
+				"operation": "unknown",
+				"params":    map[string]interface{}{},
+				"status":    "Error",
+				"message":   "Invalid operation format",
 			})
-			errorCount++
 			continue
 		}
 
 		opType, ok := opMap["type"].(string)
 		if !ok {
 			results = append(results, map[string]interface{}{
-				"index":   i,
-				"type":    "unknown",
-				"success": false,
-				"error":   "Operation type is required",
+				"operation": "unknown",
+				"params":    map[string]interface{}{},
+				"status":    "Error",
+				"message":   "Operation type is required",
 			})
-			errorCount++
 			continue
 		}
 
-		// Extract operation-specific arguments
-		opArgs := make(map[string]interface{})
+		// Extract operation-specific arguments as params
+		params := make(map[string]interface{})
 		for k, v := range opMap {
 			if k != "type" {
-				opArgs[k] = v
+				params[k] = v
 			}
 		}
 
@@ -197,26 +203,31 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 
 		switch opType {
 		case "apply_diff":
-			result, err = toolApplyDiff(opArgs)
+			result, err = toolApplyDiff(params)
 		case "replace_code":
-			result, err = toolReplaceCode(opArgs)
+			result, err = toolReplaceCode(params)
 		case "create_file":
-			result, err = toolCreateFile(opArgs)
+			result, err = toolCreateFile(params)
 		case "delete_file":
-			result, err = toolDeleteFile(opArgs)
+			result, err = toolDeleteFile(params)
+		case "rename_file", "move_file":
+			result, err = toolRenameFile(params)
+		case "copy_file":
+			result, err = toolCopyFile(params)
 		default:
 			err = fmt.Errorf("unknown operation type: %s", opType)
 		}
 
+		// Optimize params before adding to results
+		optimizedParams := optimizeParams(opType, params)
+
 		if err != nil {
 			results = append(results, map[string]interface{}{
-				"index":   i,
-				"type":    opType,
-				"success": false,
-				"error":   err.Error(),
-				"result":  nil,
+				"operation": opType,
+				"params":    optimizedParams,
+				"status":    "Error",
+				"message":   err.Error(),
 			})
-			errorCount++
 		} else {
 			// Parse JSON result if possible, otherwise use as string
 			var parsedResult interface{}
@@ -228,46 +239,208 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 			}
 
 			results = append(results, map[string]interface{}{
-				"index":   i,
-				"type":    opType,
-				"success": true,
-				"result":  parsedResult,
-				"error":   nil,
+				"operation": opType,
+				"params":    optimizedParams,
+				"status":    "Success",
+				"result":    parsedResult,
 			})
-			successCount++
 		}
 	}
 
-	// Create response
-	summary := fmt.Sprintf("Batch operations completed: %d succeeded, %d failed", successCount, errorCount)
+	// Serialize results to JSON text for MCP-compliant response format
+	resultsJSON, err := json.Marshal(map[string]interface{}{
+		"results": results,
+	})
+	if err != nil {
+		sendError(encoder, msg.ID, -32700, fmt.Sprintf("Failed to marshal results: %v", err), nil)
+		return
+	}
+
+	// Return results in MCP-compliant format using ToolsCallResponse
 	response := MCPMessage{
 		JSONRPC: "2.0",
 		ID:      msg.ID,
-		Result: map[string]interface{}{
-			"content": []Content{
-				{Type: "text", Text: summary},
+		Result: ToolsCallResponse{
+			Content: []Content{
+				{
+					Type: "text",
+					Text: string(resultsJSON),
+				},
 			},
-			"results": results,
+			IsError: false,
 		},
 	}
 
 	encoder.Encode(response)
 }
 
+// optimizeParams optimizes params for response by omitting large content fields
+// for write operations and truncating long strings for other operations
+func optimizeParams(opType string, params map[string]interface{}) map[string]interface{} {
+	optimized := make(map[string]interface{})
+	
+	// Fields to always preserve (metadata)
+	preserveFields := map[string]bool{
+		"file_path":        true,
+		"path":             true,
+		"old_path":         true,
+		"new_path":         true,
+		"source_path":      true,
+		"destination_path": true,
+		"root_path":        true,
+		"max_depth":        true,
+	}
+	
+	// For write operations, omit content fields entirely
+	switch opType {
+	case "create_file":
+		// Omit content field
+		for k, v := range params {
+			if k == "content" {
+				continue
+			}
+			optimized[k] = v
+		}
+		return optimized
+		
+	case "replace_code":
+		// Omit code/content fields
+		for k, v := range params {
+			if k == "new_code" || k == "new_content" || k == "old_code" || k == "old_content" {
+				continue
+			}
+			optimized[k] = v
+		}
+		return optimized
+		
+	case "apply_diff":
+		// Omit diff and content fields
+		for k, v := range params {
+			if k == "diff" || k == "old_content" || k == "new_content" {
+				continue
+			}
+			optimized[k] = v
+		}
+		return optimized
+	}
+	
+	// For other operations, truncate long string values (> 20 lines)
+	for k, v := range params {
+		if preserveFields[k] {
+			// Always preserve metadata fields as-is
+			optimized[k] = v
+		} else if strVal, ok := v.(string); ok {
+			// Truncate string values > 20 lines
+			lines := strings.Split(strVal, "\n")
+			if len(lines) > 20 {
+				truncated := strings.Join(lines[:20], "\n")
+				optimized[k] = fmt.Sprintf("%s\n... (truncated, %d total lines)", truncated, len(lines))
+			} else {
+				optimized[k] = v
+			}
+		} else {
+			// Preserve non-string values as-is
+			optimized[k] = v
+		}
+	}
+	
+	return optimized
+}
+
+// getFilePath extracts file path from args, accepting both "path" and "file_path"
+func getFilePath(args map[string]interface{}) (string, error) {
+	if filePath, ok := args["file_path"].(string); ok && filePath != "" {
+		return filePath, nil
+	}
+	if filePath, ok := args["path"].(string); ok && filePath != "" {
+		return filePath, nil
+	}
+	return "", fmt.Errorf("file_path or path is required")
+}
+
+// applyUnifiedDiff applies a unified diff to a file
+func applyUnifiedDiff(fileContent, diff string) (string, error) {
+	fileLines := strings.Split(fileContent, "\n")
+	diffLines := strings.Split(diff, "\n")
+
+	var newLines []string
+	fileIdx := 0
+	inHunk := false
+
+	for i := 0; i < len(diffLines); i++ {
+		line := diffLines[i]
+
+		// Skip diff header lines
+		if strings.HasPrefix(line, "---") || strings.HasPrefix(line, "+++") {
+			continue
+		}
+
+		// Parse hunk header (e.g., "@@ -1,4 +1,9 @@")
+		if strings.HasPrefix(line, "@@") {
+			inHunk = true
+			// Extract the old line range
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				oldRange := parts[1] // e.g., "-1,4"
+				if strings.HasPrefix(oldRange, "-") {
+					oldRange = oldRange[1:]
+					rangeParts := strings.Split(oldRange, ",")
+					if len(rangeParts) > 0 {
+						var startLine int
+						fmt.Sscanf(rangeParts[0], "%d", &startLine)
+						// Adjust to 0-based index
+						if startLine > 0 {
+							fileIdx = startLine - 1
+						}
+					}
+				}
+			}
+			continue
+		}
+
+		if !inHunk {
+			continue
+		}
+
+		// Process diff lines
+		if len(line) == 0 {
+			// Empty line - preserve it
+			if fileIdx < len(fileLines) {
+				newLines = append(newLines, fileLines[fileIdx])
+				fileIdx++
+			} else {
+				newLines = append(newLines, "")
+			}
+		} else if line[0] == ' ' {
+			// Context line - keep existing line
+			if fileIdx < len(fileLines) {
+				newLines = append(newLines, fileLines[fileIdx])
+				fileIdx++
+			}
+		} else if line[0] == '-' {
+			// Removed line - skip it (don't add to newLines, advance fileIdx)
+			if fileIdx < len(fileLines) {
+				fileIdx++
+			}
+		} else if line[0] == '+' {
+			// Added line - add it (don't advance fileIdx)
+			newLines = append(newLines, line[1:])
+		}
+	}
+
+	// Add remaining lines from original file
+	for fileIdx < len(fileLines) {
+		newLines = append(newLines, fileLines[fileIdx])
+		fileIdx++
+	}
+
+	return strings.Join(newLines, "\n"), nil
+}
+
 func toolApplyDiff(args map[string]interface{}) (string, error) {
-	filePath, ok := args["file_path"].(string)
-	if !ok {
-		return "", fmt.Errorf("file_path is required")
-	}
-
-	oldContent, ok := args["old_content"].(string)
-	if !ok {
-		return "", fmt.Errorf("old_content is required")
-	}
-
-	newContent, ok := args["new_content"].(string)
-	if !ok {
-		return "", fmt.Errorf("new_content is required")
+	filePath, err := getFilePath(args)
+	if err != nil {
+		return "", err
 	}
 
 	fullPath := resolvePath(filePath)
@@ -282,13 +455,34 @@ func toolApplyDiff(args map[string]interface{}) (string, error) {
 	}
 
 	currentStr := string(currentContent)
+	var newFileContent string
 
-	// Replace old_content with new_content
-	if !strings.Contains(currentStr, oldContent) {
-		return "", fmt.Errorf("old_content not found in file")
+	// Check if diff format is provided
+	if diff, ok := args["diff"].(string); ok && diff != "" {
+		// Apply unified diff format
+		newFileContent, err = applyUnifiedDiff(currentStr, diff)
+		if err != nil {
+			return "", fmt.Errorf("failed to apply diff: %w", err)
+		}
+	} else {
+		// Use old_content/new_content format
+		oldContent, ok := args["old_content"].(string)
+		if !ok {
+			return "", fmt.Errorf("old_content or diff is required")
+		}
+
+		newContent, ok := args["new_content"].(string)
+		if !ok {
+			return "", fmt.Errorf("new_content or diff is required")
+		}
+
+		// Replace old_content with new_content
+		if !strings.Contains(currentStr, oldContent) {
+			return "", fmt.Errorf("old_content not found in file")
+		}
+
+		newFileContent = strings.Replace(currentStr, oldContent, newContent, 1)
 	}
-
-	newFileContent := strings.Replace(currentStr, oldContent, newContent, 1)
 
 	// Ensure directory exists
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
@@ -304,19 +498,28 @@ func toolApplyDiff(args map[string]interface{}) (string, error) {
 }
 
 func toolReplaceCode(args map[string]interface{}) (string, error) {
-	filePath, ok := args["file_path"].(string)
-	if !ok {
-		return "", fmt.Errorf("file_path is required")
+	filePath, err := getFilePath(args)
+	if err != nil {
+		return "", err
 	}
 
-	oldCode, ok := args["old_code"].(string)
-	if !ok {
-		return "", fmt.Errorf("old_code is required")
+	// Support both old_code/old_content and new_code/new_content for flexibility
+	var oldCode string
+	var ok bool
+
+	// Try old_code first, then fall back to old_content
+	if oldCode, ok = args["old_code"].(string); !ok {
+		if oldCode, ok = args["old_content"].(string); !ok {
+			return "", fmt.Errorf("old_code or old_content is required")
+		}
 	}
 
-	newCode, ok := args["new_code"].(string)
-	if !ok {
-		return "", fmt.Errorf("new_code is required")
+	var newCode string
+	// Try new_code first, then fall back to new_content
+	if newCode, ok = args["new_code"].(string); !ok {
+		if newCode, ok = args["new_content"].(string); !ok {
+			return "", fmt.Errorf("new_code or new_content is required")
+		}
 	}
 
 	fullPath := resolvePath(filePath)
@@ -342,9 +545,9 @@ func toolReplaceCode(args map[string]interface{}) (string, error) {
 }
 
 func toolCreateFile(args map[string]interface{}) (string, error) {
-	filePath, ok := args["file_path"].(string)
-	if !ok {
-		return "", fmt.Errorf("file_path is required")
+	filePath, err := getFilePath(args)
+	if err != nil {
+		return "", err
 	}
 
 	content, ok := args["content"].(string)
@@ -373,9 +576,9 @@ func toolCreateFile(args map[string]interface{}) (string, error) {
 }
 
 func toolDeleteFile(args map[string]interface{}) (string, error) {
-	filePath, ok := args["file_path"].(string)
-	if !ok {
-		return "", fmt.Errorf("file_path is required")
+	filePath, err := getFilePath(args)
+	if err != nil {
+		return "", err
 	}
 
 	fullPath := resolvePath(filePath)
@@ -385,6 +588,108 @@ func toolDeleteFile(args map[string]interface{}) (string, error) {
 	}
 
 	return "File deleted successfully", nil
+}
+
+func toolRenameFile(args map[string]interface{}) (string, error) {
+	// Accept both old_path/new_path and source_path/destination_path
+	var oldPath, newPath string
+	var ok bool
+
+	if oldPath, ok = args["old_path"].(string); !ok || oldPath == "" {
+		if oldPath, ok = args["source_path"].(string); !ok || oldPath == "" {
+			return "", fmt.Errorf("old_path or source_path is required")
+		}
+	}
+
+	if newPath, ok = args["new_path"].(string); !ok || newPath == "" {
+		if newPath, ok = args["destination_path"].(string); !ok || newPath == "" {
+			return "", fmt.Errorf("new_path or destination_path is required")
+		}
+	}
+
+	oldFullPath := resolvePath(oldPath)
+	newFullPath := resolvePath(newPath)
+
+	// Check if source file exists
+	if _, err := os.Stat(oldFullPath); os.IsNotExist(err) {
+		return "", fmt.Errorf("source file does not exist: %s", oldPath)
+	}
+
+	// Check if destination already exists
+	if _, err := os.Stat(newFullPath); err == nil {
+		return "", fmt.Errorf("destination file already exists: %s", newPath)
+	}
+
+	// Ensure destination directory exists
+	if err := os.MkdirAll(filepath.Dir(newFullPath), 0755); err != nil {
+		return "", fmt.Errorf("failed to create destination directory: %w", err)
+	}
+
+	// Perform rename/move operation
+	if err := os.Rename(oldFullPath, newFullPath); err != nil {
+		return "", fmt.Errorf("failed to rename file: %w", err)
+	}
+
+	return "File renamed successfully", nil
+}
+
+func toolCopyFile(args map[string]interface{}) (string, error) {
+	// Accept both source_path/destination_path and old_path/new_path
+	var sourcePath, destPath string
+	var ok bool
+
+	if sourcePath, ok = args["source_path"].(string); !ok || sourcePath == "" {
+		if sourcePath, ok = args["old_path"].(string); !ok || sourcePath == "" {
+			return "", fmt.Errorf("source_path or old_path is required")
+		}
+	}
+
+	if destPath, ok = args["destination_path"].(string); !ok || destPath == "" {
+		if destPath, ok = args["new_path"].(string); !ok || destPath == "" {
+			return "", fmt.Errorf("destination_path or new_path is required")
+		}
+	}
+
+	sourceFullPath := resolvePath(sourcePath)
+	destFullPath := resolvePath(destPath)
+
+	// Check if source file exists
+	sourceInfo, err := os.Stat(sourceFullPath)
+	if os.IsNotExist(err) {
+		return "", fmt.Errorf("source file does not exist: %s", sourcePath)
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to stat source file: %w", err)
+	}
+
+	// Check if source is a directory
+	if sourceInfo.IsDir() {
+		return "", fmt.Errorf("source path is a directory, not a file: %s", sourcePath)
+	}
+
+	// Check if destination already exists
+	if _, err := os.Stat(destFullPath); err == nil {
+		return "", fmt.Errorf("destination file already exists: %s", destPath)
+	}
+
+	// Ensure destination directory exists
+	if err := os.MkdirAll(filepath.Dir(destFullPath), 0755); err != nil {
+		return "", fmt.Errorf("failed to create destination directory: %w", err)
+	}
+
+	// Read source file
+	sourceContent, err := os.ReadFile(sourceFullPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read source file: %w", err)
+	}
+
+	// Write to destination with same permissions
+	fileMode := sourceInfo.Mode()
+	if err := os.WriteFile(destFullPath, sourceContent, fileMode); err != nil {
+		return "", fmt.Errorf("failed to write destination file: %w", err)
+	}
+
+	return "File copied successfully", nil
 }
 
 func resolvePath(path string) string {

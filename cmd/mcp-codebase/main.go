@@ -72,6 +72,16 @@ func handleInitialize(scanner *bufio.Scanner, encoder *json.Encoder) error {
 		return fmt.Errorf("no initialized notification")
 	}
 
+	var initializedMsg MCPMessage
+	if err := json.Unmarshal(scanner.Bytes(), &initializedMsg); err != nil {
+		return fmt.Errorf("failed to parse initialized notification: %w", err)
+	}
+
+	// Validate that this is the initialized notification
+	if initializedMsg.Method != "notifications/initialized" {
+		return fmt.Errorf("expected initialized notification, got method: %s", initializedMsg.Method)
+	}
+
 	return nil
 }
 
@@ -159,39 +169,35 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 	}
 
 	var results []map[string]interface{}
-	var successCount int
-	var errorCount int
 
-	for i, op := range operations {
+	for _, op := range operations {
 		opMap, ok := op.(map[string]interface{})
 		if !ok {
 			results = append(results, map[string]interface{}{
-				"index":   i,
-				"type":    "unknown",
-				"success": false,
-				"error":   "Invalid operation format",
+				"operation": "unknown",
+				"params":    map[string]interface{}{},
+				"status":    "Error",
+				"message":   "Invalid operation format",
 			})
-			errorCount++
 			continue
 		}
 
 		opType, ok := opMap["type"].(string)
 		if !ok {
 			results = append(results, map[string]interface{}{
-				"index":   i,
-				"type":    "unknown",
-				"success": false,
-				"error":   "Operation type is required",
+				"operation": "unknown",
+				"params":    map[string]interface{}{},
+				"status":    "Error",
+				"message":   "Operation type is required",
 			})
-			errorCount++
 			continue
 		}
 
-		// Extract operation-specific arguments
-		opArgs := make(map[string]interface{})
+		// Extract operation-specific arguments as params
+		params := make(map[string]interface{})
 		for k, v := range opMap {
 			if k != "type" {
-				opArgs[k] = v
+				params[k] = v
 			}
 		}
 
@@ -201,26 +207,24 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 
 		switch opType {
 		case "search_code":
-			result, err = toolSearchCode(opArgs)
+			result, err = toolSearchCode(params)
 		case "get_file_dependencies":
-			result, err = toolGetFileDependencies(opArgs)
+			result, err = toolGetFileDependencies(params)
 		case "analyze_function":
-			result, err = toolAnalyzeFunction(opArgs)
+			result, err = toolAnalyzeFunction(params)
 		case "get_code_context":
-			result, err = toolGetCodeContext(opArgs)
+			result, err = toolGetCodeContext(params)
 		default:
 			err = fmt.Errorf("unknown operation type: %s", opType)
 		}
 
 		if err != nil {
 			results = append(results, map[string]interface{}{
-				"index":   i,
-				"type":    opType,
-				"success": false,
-				"error":   err.Error(),
-				"result":  nil,
+				"operation": opType,
+				"params":    params,
+				"status":    "Error",
+				"message":   err.Error(),
 			})
-			errorCount++
 		} else {
 			// Parse JSON result if possible, otherwise use as string
 			var parsedResult interface{}
@@ -232,30 +236,44 @@ func handleBatchOperations(msg *MCPMessage, encoder *json.Encoder, args map[stri
 			}
 
 			results = append(results, map[string]interface{}{
-				"index":   i,
-				"type":    opType,
-				"success": true,
-				"result":  parsedResult,
-				"error":   nil,
+				"operation": opType,
+				"params":    params,
+				"status":    "Success",
+				"result":    parsedResult,
 			})
-			successCount++
 		}
 	}
 
-	// Create response
-	summary := fmt.Sprintf("Batch operations completed: %d succeeded, %d failed", successCount, errorCount)
+	// Serialize results to JSON text for MCP-compliant response format
+	resultsJSON, err := json.Marshal(map[string]interface{}{
+		"results": results,
+	})
+	if err != nil {
+		sendError(encoder, msg.ID, -32700, fmt.Sprintf("Failed to marshal results: %v", err), nil)
+		return
+	}
+
+	// Return results in MCP-compliant format using ToolsCallResponse
 	response := MCPMessage{
 		JSONRPC: "2.0",
 		ID:      msg.ID,
-		Result: map[string]interface{}{
-			"content": []Content{
-				{Type: "text", Text: summary},
+		Result: ToolsCallResponse{
+			Content: []Content{
+				{
+					Type: "text",
+					Text: string(resultsJSON),
+				},
 			},
-			"results": results,
+			IsError: false,
 		},
 	}
 
 	encoder.Encode(response)
+}
+
+func shouldSkipDir(dirName string) bool {
+	// Skip hidden directories (starting with dot)
+	return len(dirName) > 0 && dirName[0] == '.'
 }
 
 func toolSearchCode(args map[string]interface{}) (string, error) {
@@ -289,6 +307,10 @@ func toolSearchCode(args map[string]interface{}) (string, error) {
 			return nil
 		}
 		if d.IsDir() {
+			// Skip hidden directories (including .git)
+			if shouldSkipDir(d.Name()) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 
@@ -532,3 +554,4 @@ type Content struct {
 	Type string `json:"type"`
 	Text string `json:"text,omitempty"`
 }
+

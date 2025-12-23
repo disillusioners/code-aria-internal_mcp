@@ -1,8 +1,4 @@
-# MCP server executables (root directory only)
-/mcp-filesystem
-/mcp-codebase
-/mcp-git
-/mcp-code-edit
+.gitignore
 
 # Go build artifacts
 *.exe
@@ -20,3 +16,32 @@
 # Go workspace file
 go.work
 
+.env
+
+
+# MCP server executables (root directory only)
+/mcp-filesystem
+/mcp-codebase
+/mcp-git
+/mcp-code-edit
+/mcp-git-binary
+/mcp-bash
+/mcp-checkpoints
+/mcp-lang-go
+/mcp-powershell
+/mcp-systeminfo
+/mcp-guidelines
+/mcp-documents
+/mcp-postgres
+/cmd/mcp-bash/mcp-bash
+/cmd/mcp-checkpoints/mcp-checkpoints
+/cmd/mcp-lang-go/mcp-lang-go
+/cmd/mcp-powershell/mcp-powershell
+/cmd/mcp-systeminfo/mcp-systeminfo
+/cmd/mcp-guidelines/mcp-guidelines
+/cmd/mcp-documents/mcp-documents
+/cmd/mcp-postgres/mcp-postgres
+/cmd/mcp-code-edit/mcp-code-edit
+/cmd/mcp-codebase/mcp-codebase
+/cmd/mcp-filesystem/mcp-filesystem
+/cmd/mcp-git/mcp-git
