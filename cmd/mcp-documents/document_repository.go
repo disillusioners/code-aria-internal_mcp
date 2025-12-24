@@ -351,14 +351,3 @@ func (r *SQLDocumentRepository) SearchDocuments(
 
 	return documents, nil
 }
-
-
-
-
-
-
-
-
-
-
-
