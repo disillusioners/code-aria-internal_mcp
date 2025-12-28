@@ -1,0 +1,49 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Go files
+*.go text
+go.mod text
+go.sum text
+
+# Documentation
+*.md text
+*.txt text
+
+# Configuration files
+*.yml text
+*.yaml text
+*.json text
+*.toml text
+*.env text
+*.env.example text
+
+# Scripts
+*.sh text
+*.bash text
+
+# Docker
+Dockerfile text
+*.dockerfile text
+docker-compose*.yml text
+.dockerignore text
+
+# Git
+.gitignore text
+.gitattributes text
+
+# Makefiles
+Makefile text
+makefile text
+
+# Test files
+*_test.go text
+
+# Denote all files that are truly binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg binary
+
