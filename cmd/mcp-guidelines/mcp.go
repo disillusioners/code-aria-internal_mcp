@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // handleInitialize processes the MCP initialize request
@@ -118,13 +119,22 @@ func handleToolCall(msg *MCPMessage, encoder *json.Encoder) {
 		return
 	}
 
-	if req.Name == "apply_operations" {
+	// Normalize tool name (trim whitespace)
+	toolName := strings.TrimSpace(req.Name)
+
+	// Debug: Check if tool name is empty or doesn't match
+	if toolName == "" {
+		sendError(encoder, msg.ID, -32602, fmt.Sprintf("tool name is required. Received params: %s", string(reqJSON)), nil)
+		return
+	}
+
+	if toolName == "apply_operations" {
 		handleBatchOperations(msg, encoder, req.Arguments)
 		return
 	}
 
 	// Individual tool calls are no longer exposed, but kept for internal use
-	sendError(encoder, msg.ID, -32601, fmt.Sprintf("Unknown tool: %s. Use apply_operations for batch operations", req.Name), nil)
+	sendError(encoder, msg.ID, -32601, fmt.Sprintf("Unknown tool: %s. Use apply_operations for batch operations", toolName), nil)
 }
 
 // handleBatchOperations processes a batch of operations
@@ -254,12 +264,3 @@ func sendError(encoder *json.Encoder, id interface{}, code int, message string, 
 	}
 	encoder.Encode(response)
 }
-
-
-
-
-
-
-
-
-
