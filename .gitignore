@@ -46,3 +46,4 @@ go.work
 /cmd/mcp-git/mcp-git
 /cmd/mcp-savepoints/mcp-savepoints
 mcp-savepoints
+/cmd/mcp-bash/mcp-bash-test

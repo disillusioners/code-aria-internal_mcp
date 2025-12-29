@@ -509,13 +509,13 @@ func TestValidateTimeout(t *testing.T) {
 	}{
 		{
 			name:      "valid timeout for command",
-			timeout:   30,
+			timeout:   180, // New default
 			isScript:  false,
 			wantValid: true,
 		},
 		{
 			name:      "valid timeout for script",
-			timeout:   60,
+			timeout:   180, // New default (same as commands)
 			isScript:  true,
 			wantValid: true,
 		},
@@ -535,27 +535,27 @@ func TestValidateTimeout(t *testing.T) {
 		},
 		{
 			name:         "timeout exceeds max for command",
-			timeout:      400,
+			timeout:      700, // Now exceeds new max of 600
 			isScript:     false,
 			wantValid:    false,
 			expectedRule: "timeout_maximum",
 		},
 		{
 			name:         "timeout exceeds max for script",
-			timeout:      700,
+			timeout:      700, // Still exceeds script max of 600
 			isScript:     true,
 			wantValid:    false,
 			expectedRule: "timeout_maximum",
 		},
 		{
 			name:      "max timeout for command",
-			timeout:   300,
+			timeout:   600, // New max for commands
 			isScript:  false,
 			wantValid: true,
 		},
 		{
 			name:      "max timeout for script",
-			timeout:   600,
+			timeout:   600, // Still 600 for scripts
 			isScript:  true,
 			wantValid: true,
 		},

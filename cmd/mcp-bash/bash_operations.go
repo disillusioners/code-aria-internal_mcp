@@ -70,8 +70,8 @@ var defaultSecurityPolicy = SecurityPolicy{
 	},
 	MaxCommandLen:   1000,
 	MaxScriptLen:    10000,
-	DefaultTimeout:  30,
-	MaxTimeout:      300,
+	DefaultTimeout:  180, // 3 minutes default timeout for commands
+	MaxTimeout:      600, // 10 minutes maximum timeout for commands
 	AllowShellAccess: false,
 }
 
@@ -172,7 +172,7 @@ func toolExecuteScript(args map[string]interface{}) (string, error) {
 		return "", fmt.Errorf("script is required")
 	}
 
-	timeout := 60 // Default for scripts
+	timeout := 180 // Default for scripts (3 minutes, same as commands)
 	if t, ok := args["timeout"].(float64); ok {
 		timeout = int(t)
 	}

@@ -20,7 +20,7 @@ Executes a single bash command with security restrictions.
 
 **Parameters:**
 - `command` (string, required): The bash command to execute
-- `timeout` (integer, optional): Command timeout in seconds (default: 30, max: 300)
+- `timeout` (integer, optional): Command timeout in seconds (default: 180, max: 600)
 - `working_directory` (string, optional): Directory to execute command in (default: REPO_PATH)
 - `allow_shell_access` (boolean, optional): Allow shell features like pipes, redirects (default: false)
 - `environment_vars` (object, optional): Additional environment variables for the command
@@ -44,7 +44,7 @@ Executes a multi-line bash script with enhanced security controls.
 
 **Parameters:**
 - `script` (string, required): Multi-line bash script to execute
-- `timeout` (integer, optional): Script timeout in seconds (default: 60, max: 600)
+- `timeout` (integer, optional): Script timeout in seconds (default: 180, max: 600)
 - `working_directory` (string, optional): Directory to execute script in (default: REPO_PATH)
 - `allow_shell_access` (boolean, optional): Allow shell features (default: true for scripts)
 - `environment_vars` (object, optional): Additional environment variables
@@ -75,6 +75,43 @@ Checks if a command is available in the system PATH.
   "type": "check_command_exists",
   "command": "git",
   "search_paths": ["/usr/local/bin", "/usr/bin"]
+}
+```
+
+## Timeout Control for LLMs
+
+The Bash MCP server allows LLMs to control command execution timeouts:
+
+- **Default Timeout**: 180 seconds (3 minutes) - suitable for most operations
+- **Maximum Timeout**: 600 seconds (10 minutes) - for long-running operations
+- **LLM Responsibility**: The LLM should assess the expected duration and set appropriate timeout values
+
+### Recommended Timeout Values by Operation Type
+
+| Operation Type | Recommended Timeout | Examples |
+|----------------|---------------------|----------|
+| Simple commands | 30-60 seconds | `ls`, `cat`, `grep`, `echo` |
+| Code analysis | 60-120 seconds | `find`, `grep -r`, `wc -l` |
+| Build operations | 180-300 seconds | `make`, `npm install`, `go build` |
+| Full test suites | 300-600 seconds | `npm test`, `cargo test`, `make test` |
+| Large installations | 600 seconds | Complex package installations |
+
+### Examples
+
+**Long-running build with custom timeout:**
+```json
+{
+  "type": "execute_command",
+  "command": "npm install",
+  "timeout": 300
+}
+```
+
+**Quick file listing with default timeout:**
+```json
+{
+  "type": "execute_command",
+  "command": "ls -la"
 }
 ```
 

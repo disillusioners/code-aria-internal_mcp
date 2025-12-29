@@ -70,7 +70,7 @@ func handleToolsList(msg *MCPMessage, encoder *json.Encoder) {
 	tools := []Tool{
 		{
 			Name:        "apply_operations",
-			Description: "Execute multiple bash operations in a single batch call",
+			Description: "Execute multiple bash operations in a single batch call. Each operation can specify a timeout parameter (default: 180 seconds, max: 600 seconds). The LLM should control the timeout based on the expected operation duration - use higher timeouts for long-running operations like builds, tests, or installations.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
