@@ -1,0 +1,83 @@
+# =============================================================================
+# Code-Aria Internal MCP Servers - Development Dockerfile
+# =============================================================================
+# Development build with all 12 MCP servers
+# =============================================================================
+
+FROM golang:1.24-alpine AS builder
+
+# Install git and development tools
+RUN apk add --no-cache git curl make
+
+# Set working directory
+WORKDIR /app
+
+# Copy go mod and sum files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build all MCP servers without stripping for debugging
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o mcp-filesystem ./cmd/mcp-filesystem && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o mcp-codebase ./cmd/mcp-codebase && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o mcp-git ./cmd/mcp-git && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o mcp-code-edit ./cmd/mcp-code-edit && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o mcp-bash ./cmd/mcp-bash && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o mcp-powershell ./cmd/mcp-powershell && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o mcp-systeminfo ./cmd/mcp-systeminfo && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o mcp-guidelines ./cmd/mcp-guidelines && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o mcp-postgres ./cmd/mcp-postgres && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o mcp-savepoints ./cmd/mcp-savepoints && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o mcp-documents ./cmd/mcp-documents && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o mcp-lang-go ./cmd/mcp-lang-go
+
+FROM golang:1.24-alpine AS runtime
+
+# Install git and runtime dependencies
+RUN apk add --no-cache git curl ca-certificates tzdata
+
+# Create non-root user
+RUN addgroup -g 1000 appgroup && \
+    adduser -D -u 1000 -G appgroup appuser
+
+# Set working directory
+WORKDIR /app
+
+# Create directories for each MCP server
+RUN mkdir -p /home/appuser/servers/{mcp-filesystem,mcp-codebase,mcp-git,mcp-code-edit,mcp-bash,mcp-powershell,mcp-systeminfo,mcp-guidelines,mcp-postgres,mcp-savepoints,mcp-documents,mcp-lang-go}
+
+# Copy binaries from builder
+COPY --from=builder /app/mcp-filesystem /home/appuser/servers/mcp-filesystem/
+COPY --from=builder /app/mcp-codebase /home/appuser/servers/mcp-codebase/
+COPY --from=builder /app/mcp-git /home/appuser/servers/mcp-git/
+COPY --from=builder /app/mcp-code-edit /home/appuser/servers/mcp-code-edit/
+COPY --from=builder /app/mcp-bash /home/appuser/servers/mcp-bash/
+COPY --from=builder /app/mcp-powershell /home/appuser/servers/mcp-powershell/
+COPY --from=builder /app/mcp-systeminfo /home/appuser/servers/mcp-systeminfo/
+COPY --from=builder /app/mcp-guidelines /home/appuser/servers/mcp-guidelines/
+COPY --from=builder /app/mcp-postgres /home/appuser/servers/mcp-postgres/
+COPY --from=builder /app/mcp-savepoints /home/appuser/servers/mcp-savepoints/
+COPY --from=builder /app/mcp-documents /home/appuser/servers/mcp-documents/
+COPY --from=builder /app/mcp-lang-go /home/appuser/servers/mcp-lang-go/
+
+# Make all binaries executable
+RUN chmod +x /home/appuser/servers/*/*
+
+# Change ownership
+RUN chown -R appuser:appgroup /home/appuser
+
+# Switch to non-root user
+USER appuser
+
+# No ports exposed - MCP servers communicate via stdio
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD ls -la /home/appuser/servers/mcp-filesystem/mcp-filesystem && echo "MCP servers installed"
+
+# Default command - list available servers
+CMD ["sh", "-c", "ls -la /home/appuser/servers/"]

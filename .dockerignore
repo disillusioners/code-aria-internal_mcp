@@ -1,0 +1,94 @@
+# =============================================================================
+# Code-Aria Internal MCP Servers - .dockerignore
+# =============================================================================
+
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Environment and configuration
+.env
+.env.*
+.env.local
+*.local
+
+# Documentation
+*.md
+!README.md
+CLAUDE.md
+IMPLEMENTATION_*.md
+
+# Build artifacts
+*.out
+*.exe
+*.dll
+*.so
+*.a
+*.o
+*.test
+*.coverprofile
+mcp-*
+
+# Test files
+coverage/
+*.coverprofile
+*_test.go
+
+# Temporary files
+tmp/
+temp/
+*.log
+*.tmp
+*.temp
+
+# Go build cache
+/go/pkg/
+/go/bin/
+
+# VS Code settings
+.vscode/launch.json
+.vscode/tasks.json
+.vscode/settings.json
+
+# Claude AI settings
+.claude/
+.cursor/
+
+# MCP checkpoints
+.mcp-checkpoints/
+
+# Logs
+logs/
+*.log
+*.txt
+!README.md
+
+# Test artifacts
+test-*.txt
+test-*.json
+simple_test.*
+
+# Cursor artifacts
+*.cursor
+
+# Makefiles (use system Makefiles)
+Makefile
+Makefile.unix
+Makefile.windows
+
+# Install scripts
+install-windows.ps1
+
+# Misc
+*.orig
+*.rej
