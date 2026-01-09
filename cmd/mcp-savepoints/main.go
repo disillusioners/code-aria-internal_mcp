@@ -12,6 +12,8 @@ func main() {
 
 	// Setup MCP communication
 	scanner := bufio.NewScanner(os.Stdin)
+	// Increase buffer size to handle large JSON-RPC messages
+	scanner.Buffer(nil, 10*1024*1024) // 10MB buffer
 	encoder := json.NewEncoder(os.Stdout)
 
 	// Handle initialize request
