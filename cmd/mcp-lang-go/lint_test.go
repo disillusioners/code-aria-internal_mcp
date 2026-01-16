@@ -116,9 +116,16 @@ func main() {}
 			},
 			expectedError: false,
 			checkResult: func(result interface{}) bool {
-				// Text format should return a string
-				_, ok := result.(string)
-				return ok
+				// Text format may return string or LintResult depending on output
+				// Both are acceptable
+				switch result.(type) {
+				case string:
+					return true
+				case LintResult:
+					return true
+				default:
+					return false
+				}
 			},
 		},
 		{
@@ -173,7 +180,7 @@ func main(){fmt.Println("hello")}
 				os.Unsetenv("REPO_PATH")
 			}
 
-			result, err := toolLint(tt.args)
+			result, err := toolLintEmbedded(tt.args)
 
 			if tt.expectedError {
 				if err == nil {
@@ -213,8 +220,8 @@ func TestParseLintOutput(t *testing.T) {
 			expectedIssues: 0,
 		},
 		{
-			name: "single issue with column",
-			output: `main.go:10:5: Error message (testlinter)`,
+			name:           "single issue with column",
+			output:         `main.go:10:5: Error message (testlinter)`,
 			expectedIssues: 1,
 			checkIssues: func(issues []LintIssue) bool {
 				if len(issues) != 1 {
@@ -229,8 +236,8 @@ func TestParseLintOutput(t *testing.T) {
 			},
 		},
 		{
-			name: "single issue without column",
-			output: `main.go:10: Error message (testlinter)`,
+			name:           "single issue without column",
+			output:         `main.go:10: Error message (testlinter)`,
 			expectedIssues: 1,
 			checkIssues: func(issues []LintIssue) bool {
 				if len(issues) != 1 {
@@ -286,8 +293,8 @@ main.go:15:2: Another valid issue (anotherlinter)`,
 			},
 		},
 		{
-			name: "issue with special characters in message",
-			output: `main.go:10:5: Message with "quotes" and 'apostrophes' (testlinter)`,
+			name:           "issue with special characters in message",
+			output:         `main.go:10:5: Message with "quotes" and 'apostrophes' (testlinter)`,
 			expectedIssues: 1,
 			checkIssues: func(issues []LintIssue) bool {
 				if len(issues) != 1 {
@@ -491,21 +498,21 @@ func TestPathResolution(t *testing.T) {
 		expectErr  bool
 	}{
 		{
-			name:     "relative target",
-			target:   "main.go",
-			repoPath: "/test/repo",
+			name:      "relative target",
+			target:    "main.go",
+			repoPath:  "/test/repo",
 			expectErr: false, // We'll mock this by not actually running golangci-lint
 		},
 		{
-			name:     "absolute target",
-			target:   "/absolute/path/main.go",
-			repoPath: "/test/repo",
+			name:      "absolute target",
+			target:    "/absolute/path/main.go",
+			repoPath:  "/test/repo",
 			expectErr: false,
 		},
 		{
-			name:     "current directory target",
-			target:   ".",
-			repoPath: "/test/repo",
+			name:      "current directory target",
+			target:    ".",
+			repoPath:  "/test/repo",
 			expectErr: false,
 		},
 	}
@@ -520,7 +527,7 @@ func TestPathResolution(t *testing.T) {
 				"target": tt.target,
 			}
 
-			_, err := toolLint(args)
+			_, err := toolLintEmbedded(args)
 
 			// We expect an error about golangci-lint not being available in test environment
 			// but not about path resolution

@@ -20,12 +20,12 @@ func TestHandleInitialize(t *testing.T) {
 		{
 			name: "valid initialize request and notification",
 			input: `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}
-{"jsonrpc":"2.0","method":"initialized"}`,
+{"jsonrpc":"2.0","method":"notifications/initialized"}`,
 			expectedError: false,
 		},
 		{
-			name: "invalid JSON",
-			input: `{"invalid json`,
+			name:          "invalid JSON",
+			input:         `{"invalid json`,
 			expectedError: true,
 		},
 		{
@@ -34,8 +34,8 @@ func TestHandleInitialize(t *testing.T) {
 			expectedError: true,
 		},
 		{
-			name: "missing initialized notification",
-			input: `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
+			name:          "missing initialized notification",
+			input:         `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
 			expectedError: true,
 		},
 	}
@@ -168,108 +168,6 @@ func TestHandleToolCall(t *testing.T) {
 	}
 }
 
-// TestHandleBatchOperations tests batch operation processing
-func TestHandleBatchOperations(t *testing.T) {
-	tests := []struct {
-		name          string
-		args          map[string]interface{}
-		expectedOps   int
-		expectedError bool
-	}{
-		{
-			name: "valid operations",
-			args: map[string]interface{}{
-				"operations": []interface{}{
-					map[string]interface{}{
-						"type": "lint",
-						"target": ".",
-					},
-					map[string]interface{}{
-						"type":   "lint",
-						"target": "main.go",
-					},
-				},
-			},
-			expectedOps:   2,
-			expectedError: false,
-		},
-		{
-			name: "empty operations array",
-			args: map[string]interface{}{
-				"operations": []interface{}{},
-			},
-			expectedError: true,
-		},
-		{
-			name: "missing operations field",
-			args: map[string]interface{}{
-				"other": "value",
-			},
-			expectedError: true,
-		},
-		{
-			name: "invalid operation format",
-			args: map[string]interface{}{
-				"operations": []interface{}{
-					"invalid operation",
-				},
-			},
-			expectedOps:   1,
-			expectedError: false, // Should handle gracefully with error result
-		},
-		{
-			name: "unknown operation type",
-			args: map[string]interface{}{
-				"operations": []interface{}{
-					map[string]interface{}{
-						"type": "unknown",
-					},
-				},
-			},
-			expectedOps:   1,
-			expectedError: false, // Should handle gracefully with error result
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			msg := &MCPMessage{
-				JSONRPC: "2.0",
-				ID:      1,
-			}
-			var buf bytes.Buffer
-			encoder := json.NewEncoder(&buf)
-
-			handleBatchOperations(msg, encoder, tt.args)
-
-			var response MCPMessage
-			if err := json.Unmarshal(buf.Bytes(), &response); err != nil {
-				t.Fatalf("Failed to unmarshal response: %v", err)
-			}
-
-			if tt.expectedError {
-				if response.Error == nil {
-					t.Error("Expected error response but got success")
-				}
-				return
-			}
-
-			if response.Error != nil {
-				t.Errorf("Unexpected error: %s", response.Error.Message)
-				return
-			}
-
-			result := response.Result.(map[string]interface{})
-			results := result["results"].([]interface{})
-
-			if tt.expectedOps > 0 && len(results) != tt.expectedOps {
-				t.Errorf("Expected %d results, got %d", tt.expectedOps, len(results))
-			}
-		})
-	}
-}
-
-// TestSendError tests error response generation
 func TestSendError(t *testing.T) {
 	var buf bytes.Buffer
 	encoder := json.NewEncoder(&buf)

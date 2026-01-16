@@ -149,12 +149,12 @@ func TestHandleToolsList(t *testing.T) {
 		t.Fatal("handleToolsList() tools is not an array")
 	}
 
-	if len(tools) < 3 {
-		t.Errorf("handleToolsList() expected at least 3 tools, got %d", len(tools))
+	if len(tools) < 1 {
+		t.Errorf("handleToolsList() expected at least 1 tool, got %d", len(tools))
 	}
 
 	// Check for expected tool names
-	expectedTools := []string{"get_guidelines", "get_guideline_content", "search_guidelines"}
+	expectedTools := []string{"apply_operations"}
 	toolNames := make(map[string]bool)
 	for _, tool := range tools {
 		if toolMap, ok := tool.(map[string]interface{}); ok {
@@ -227,16 +227,3 @@ func TestSendError(t *testing.T) {
 		t.Errorf("sendError() error message = %s, want 'Test error'", response.Error.Message)
 	}
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
