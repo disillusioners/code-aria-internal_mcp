@@ -9,15 +9,17 @@ import (
 	"syscall"
 )
 
+// nothing just a commit test
+
 func main() {
 	// Initialize audit logger
 	if err := InitAuditLogger(); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to initialize audit logger: %v\n", err)
 	}
-	
+
 	// Ensure cleanup on exit
 	defer CloseAuditLogger()
-	
+
 	// Handle signals for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
