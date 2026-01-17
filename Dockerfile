@@ -1,14 +1,14 @@
 # =============================================================================
-# Code-Aria MCP Servers - Base Image with Python Runtime
+# Code-Aria MCP Servers - Minimal Go-Only Image
 # =============================================================================
 # This image contains:
 # - All 12 MCP server executables in /usr/local/bin
-# - Python 3.12 runtime with build dependencies
+# - Minimal Alpine Linux runtime (no Python, no build tools)
 # - Serves as the base for code-aria-langgraph image
 # =============================================================================
 
 # =============================================================================
-# Stage 1: Builder - Build MCP servers
+# Stage 1: Builder - Build MCP servers (Go only)
 # =============================================================================
 FROM golang:1.24-alpine AS builder
 
@@ -47,24 +47,20 @@ RUN ls -lh mcp-* && \
     md5sum mcp-filesystem mcp-codebase mcp-git mcp-code-edit mcp-bash mcp-powershell mcp-systeminfo mcp-savepoints mcp-lang-go mcp-guidelines mcp-documents mcp-postgres
 
 # =============================================================================
-# Stage 2: Runtime - Python with MCP executables
+# Stage 2: Runtime - Minimal Alpine (Go only, no Python)
 # =============================================================================
-FROM python:3.12-slim AS runtime
+FROM alpine:3.19 AS runtime
 
-# Install runtime and build dependencies
-# - curl: for health checks
+# Install only runtime dependencies
 # - git: needed by MCP-git and general operations
-# - build-essential: for Python package compilation
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    ca-certificates \
+# - ca-certificates: for HTTPS connections
+RUN apk add --no-cache \
     git \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+    ca-certificates
 
 # Create non-root user for security
-RUN groupadd -g 1000 appgroup && \
-    useradd -u 1000 -g appgroup -m -s /bin/bash appuser
+RUN addgroup -g 1000 appgroup && \
+    adduser -u 1000 -G appgroup -s /bin/sh -D appuser
 
 # Copy MCP server executables from builder
 COPY --from=builder /app/mcp-filesystem /usr/local/bin/
@@ -85,19 +81,21 @@ RUN chmod +x /usr/local/bin/mcp-* && \
     ls -lh /usr/local/bin/mcp-* && \
     echo "MCP servers installed to /usr/local/bin"
 
-# Set working directory
-WORKDIR /app
+# Set ownership
+RUN chown -R appuser:appgroup /usr/local/bin
 
-# Create directories for application code
-RUN mkdir -p /app && \
-    chown -R appuser:appgroup /app
+# Set working directory
+WORKDIR /home/appuser
 
 # Switch to non-root user
 USER appuser
 
 # Set environment variables
-ENV PYTHONUNBUFFERED=1
 ENV PATH="/usr/local/bin:${PATH}"
 
-# Default command (can be overridden)
-CMD ["/bin/bash"]
+# Health check - verify MCP executables exist and are executable
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD sh -c 'test -x /usr/local/bin/mcp-filesystem && test -x /usr/local/bin/mcp-git && echo "MCP servers healthy"'
+
+# Default command - list available MCP servers
+CMD ["/bin/sh", "-c", "ls -la /usr/local/bin/mcp-*"]
