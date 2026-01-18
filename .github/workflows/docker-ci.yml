@@ -3,13 +3,12 @@ name: Docker CI/CD
 on:
   push:
     branches:
-      - main
       - release/*
     tags:
       - 'v*'
   pull_request:
     branches:
-      - main
+      - master
     paths:
       - '**'
       - '!.git/**'
